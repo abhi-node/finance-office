@@ -200,3 +200,6 @@ gdbtrace.log
 
 # xml unit tests sometimes leave these lying around
 **/secmod.db
+
+# macOS Library cache directory
+/Library/
