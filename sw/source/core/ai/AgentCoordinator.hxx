@@ -14,9 +14,11 @@
 #include <cppuhelper/implbase.hxx>
 #include <com/sun/star/ai/XAIAgentCoordinator.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
+#include <com/sun/star/lang/IllegalArgumentException.hpp>
 #include <com/sun/star/uno/XComponentContext.hpp>
 #include <com/sun/star/frame/XFrame.hpp>
 #include <com/sun/star/beans/PropertyValue.hpp>
+#include <com/sun/star/uno/Sequence.hxx>
 
 #include <memory>
 #include <mutex>
@@ -33,6 +35,11 @@ namespace sw::ai {
     class AuthenticationManager;
     class ErrorRecoveryManager;
 }
+
+#include "DocumentContext.hxx"
+#include "MessageQueue.hxx"
+#include "AuthenticationManager.hxx"
+#include "ErrorRecoveryManager.hxx"
 
 namespace sw::core::ai {
 

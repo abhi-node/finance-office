@@ -88,6 +88,8 @@ public:
         std::chrono::steady_clock::time_point aLastAttempt;
         std::map<OUString, OUString> aContext;  // Additional error context
         
+        ErrorContext() = default;
+        
         ErrorContext(ErrorType eT, const OUString& rsMessage, const OUString& rsService)
             : eType(eT), sErrorMessage(rsMessage), sServiceName(rsService)
             , nErrorCode(0), nAttemptCount(0)
@@ -156,7 +158,17 @@ private:
     RecoveryCallback m_aRecoveryCallback;
     RetryCallback m_aRetryCallback;
     
-    // Statistics and monitoring
+    // Statistics - separate atomic data from copyable snapshot
+    struct ErrorStatisticsData
+    {
+        sal_Int32 nTotalErrors;
+        sal_Int32 nRetriedErrors;
+        sal_Int32 nRecoveredErrors;
+        sal_Int32 nFailedErrors;
+        sal_Int32 nCircuitBreakerTrips;
+        std::chrono::steady_clock::time_point aLastReset;
+    };
+    
     struct ErrorStatistics
     {
         std::atomic<sal_Int32> nTotalErrors{0};
@@ -167,6 +179,26 @@ private:
         std::chrono::steady_clock::time_point aLastReset;
         
         ErrorStatistics() : aLastReset(std::chrono::steady_clock::now()) {}
+        
+        void reset() {
+            nTotalErrors = 0;
+            nRetriedErrors = 0;
+            nRecoveredErrors = 0;
+            nFailedErrors = 0;
+            nCircuitBreakerTrips = 0;
+            aLastReset = std::chrono::steady_clock::now();
+        }
+        
+        ErrorStatisticsData getData() const {
+            return {
+                nTotalErrors.load(),
+                nRetriedErrors.load(),
+                nRecoveredErrors.load(),
+                nFailedErrors.load(),
+                nCircuitBreakerTrips.load(),
+                aLastReset
+            };
+        }
     };
     
     ErrorStatistics m_aStatistics;
@@ -340,7 +372,7 @@ public:
      * 
      * @returns Current error statistics
      */
-    ErrorStatistics getStatistics() const;
+    ErrorStatisticsData getStatistics() const;
     
     /**
      * Reset error statistics

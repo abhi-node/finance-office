@@ -598,7 +598,7 @@ bool MessageQueue::validateMessage(const QueuedMessage& rMessage) const
     return true;
 }
 
-void MessageQueue::updateStatistics(const QueuedMessage& rMessage, MessageStatus eNewStatus)
+void MessageQueue::updateStatistics(const QueuedMessage& /* rMessage */, MessageStatus eNewStatus)
 {
     switch (eNewStatus)
     {
@@ -666,7 +666,9 @@ void MessageQueue::parseConfiguration(const Sequence<PropertyValue>& rConfig)
         }
         else if (rProperty.Name == "EnablePersistence")
         {
-            rProperty.Value >>= m_bPersistenceEnabled;
+            bool bValue = false;
+            if (rProperty.Value >>= bValue)
+                m_bPersistenceEnabled.store(bValue);
         }
         else if (rProperty.Name == "MaxMessagesPerSecond")
         {
@@ -675,16 +677,16 @@ void MessageQueue::parseConfiguration(const Sequence<PropertyValue>& rConfig)
     }
 }
 
-MessageQueue::QueueStatistics MessageQueue::getStatistics() const
+MessageQueue::QueueStatisticsData MessageQueue::getStatistics() const
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    return m_aStatistics;
+    return m_aStatistics.getData();
 }
 
 void MessageQueue::resetStatistics()
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    m_aStatistics = QueueStatistics();
+    m_aStatistics.reset();
 }
 
 bool MessageQueue::isHealthy() const
@@ -696,7 +698,7 @@ bool MessageQueue::isHealthy() const
         return false;
     
     // Check if too many messages are failing
-    auto stats = m_aStatistics;
+    auto stats = m_aStatistics.getData();
     if (stats.nTotalEnqueued > 0)
     {
         double fFailureRate = static_cast<double>(stats.nTotalFailed) / stats.nTotalEnqueued;

@@ -50,7 +50,7 @@ bool ErrorRecoveryManager::initialize(const Sequence<PropertyValue>& rConfig)
         createDefaultRetryPolicies();
         
         // Initialize statistics
-        m_aStatistics = ErrorStatistics();
+        m_aStatistics.reset();
         
         // Set up default callbacks if none provided
         if (!m_aErrorCallback)
@@ -446,7 +446,7 @@ void ErrorRecoveryManager::setDefaultRetryPolicy(const RetryPolicy& rPolicy)
     if (validateRetryPolicy(rPolicy))
     {
         // Apply to all services that don't have specific policies
-        for (const auto& rsService : {"http", "websocket", "langgraph"})
+        for (const OUString& rsService : {OUString("http"), OUString("websocket"), OUString("langgraph")})
         {
             if (m_aRetryPolicies.find(rsService) == m_aRetryPolicies.end())
             {
@@ -474,16 +474,16 @@ void ErrorRecoveryManager::setRetryCallback(const RetryCallback& aCallback)
     m_aRetryCallback = aCallback;
 }
 
-ErrorRecoveryManager::ErrorStatistics ErrorRecoveryManager::getStatistics() const
+ErrorRecoveryManager::ErrorStatisticsData ErrorRecoveryManager::getStatistics() const
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    return m_aStatistics;
+    return m_aStatistics.getData();
 }
 
 void ErrorRecoveryManager::resetStatistics()
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    m_aStatistics = ErrorStatistics();
+    m_aStatistics.reset();
 }
 
 std::map<OUString, ErrorRecoveryManager::ErrorContext> ErrorRecoveryManager::getActiveErrors() const

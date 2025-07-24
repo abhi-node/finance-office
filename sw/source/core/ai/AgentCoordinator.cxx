@@ -24,6 +24,8 @@ using namespace css::lang;
 using namespace css::beans;
 using namespace css::frame;
 
+using css::lang::IllegalArgumentException;
+
 namespace sw::core::ai {
 
 // Service registration macros
@@ -150,13 +152,14 @@ Sequence<OUString> SAL_CALL AgentCoordinator::getAvailableAgents()
     // Return list of available agents based on current implementation status
     // This will be expanded as agents are implemented
     Sequence<OUString> aAgents(7);
-    aAgents[0] = "DocumentMaster";
-    aAgents[1] = "ContextAnalysis"; 
-    aAgents[2] = "ContentGeneration";
-    aAgents[3] = "Formatting";
-    aAgents[4] = "DataIntegration";
-    aAgents[5] = "Validation";
-    aAgents[6] = "Execution";
+    OUString* pAgents = aAgents.getArray();
+    pAgents[0] = "DocumentMaster";
+    pAgents[1] = "ContextAnalysis";
+    pAgents[2] = "ContentGeneration";
+    pAgents[3] = "Formatting";
+    pAgents[4] = "DataIntegration";
+    pAgents[5] = "Validation";
+    pAgents[6] = "Execution";
     
     return aAgents;
 }
@@ -209,12 +212,13 @@ Sequence<PropertyValue> SAL_CALL AgentCoordinator::getConfiguration()
     std::lock_guard<std::mutex> aGuard(m_aMutex);
     
     Sequence<PropertyValue> aConfig(5);
+    PropertyValue* pConfig = aConfig.getArray();
     
-    aConfig[0] = makeConfigProperty("MaxRetries", Any(m_nMaxRetries));
-    aConfig[1] = makeConfigProperty("TimeoutMs", Any(m_nTimeoutMs));
-    aConfig[2] = makeConfigProperty("MaxQueueSize", Any(m_nMaxQueueSize));
-    aConfig[3] = makeConfigProperty("EnableWebSocket", Any(m_bEnableWebSocket));
-    aConfig[4] = makeConfigProperty("EnableOfflineMode", Any(m_bEnableOfflineMode));
+    pConfig[0] = makeConfigProperty("MaxRetries", Any(m_nMaxRetries));
+    pConfig[1] = makeConfigProperty("TimeoutMs", Any(m_nTimeoutMs));
+    pConfig[2] = makeConfigProperty("MaxQueueSize", Any(m_nMaxQueueSize));
+    pConfig[3] = makeConfigProperty("EnableWebSocket", Any(m_bEnableWebSocket));
+    pConfig[4] = makeConfigProperty("EnableOfflineMode", Any(m_bEnableOfflineMode));
     
     return aConfig;
 }
@@ -234,7 +238,8 @@ sal_Bool SAL_CALL AgentCoordinator::supportsService(const OUString& rServiceName
 Sequence<OUString> SAL_CALL AgentCoordinator::getSupportedServiceNames()
 {
     Sequence<OUString> aServices(1);
-    aServices[0] = SERVICE_NAME;
+    OUString* pServices = aServices.getArray();
+    pServices[0] = SERVICE_NAME;
     return aServices;
 }
 
@@ -303,7 +308,7 @@ AgentCoordinator::RequestComplexity AgentCoordinator::analyzeRequestComplexity(
 }
 
 OUString AgentCoordinator::processSimpleRequest(
-    const OUString& rsRequest, const Any& rContext)
+    const OUString& rsRequest, const Any& /* rContext */)
 {
     // Simple request processing - fast response for basic operations
     SAL_INFO("sw.ai", "Processing simple request: " << rsRequest);
@@ -349,7 +354,7 @@ OUString AgentCoordinator::processSimpleRequest(
 }
 
 OUString AgentCoordinator::processModerateRequest(
-    const OUString& rsRequest, const Any& rContext)
+    const OUString& rsRequest, const Any& /* rContext */)
 {
     // Moderate request processing - balanced workflow
     SAL_INFO("sw.ai", "Processing moderate request: " << rsRequest);
@@ -394,7 +399,7 @@ OUString AgentCoordinator::processModerateRequest(
 }
 
 OUString AgentCoordinator::processComplexRequest(
-    const OUString& rsRequest, const Any& rContext)
+    const OUString& rsRequest, const Any& /* rContext */)
 {
     // Complex request processing - full agent workflow
     SAL_INFO("sw.ai", "Processing complex request: " << rsRequest);
@@ -493,12 +498,13 @@ bool AgentCoordinator::initializeNetworkClient()
         
         // Configure network client
         Sequence<PropertyValue> aConfig(3);
-        aConfig[0].Name = "DefaultTimeout";
-        aConfig[0].Value <<= m_nTimeoutMs;
-        aConfig[1].Name = "UserAgent";
-        aConfig[1].Value <<= OUString("LibreOffice-Writer-AI/1.0");
-        aConfig[2].Name = "MaxConnections";
-        aConfig[2].Value <<= sal_Int32(5);
+        PropertyValue* pConfig = aConfig.getArray();
+        pConfig[0].Name = "DefaultTimeout";
+        pConfig[0].Value <<= m_nTimeoutMs;
+        pConfig[1].Name = "UserAgent";
+        pConfig[1].Value <<= OUString("LibreOffice-Writer-AI/1.0");
+        pConfig[2].Name = "MaxConnections";
+        pConfig[2].Value <<= sal_Int32(5);
         
         bool bSuccess = m_pNetworkClient->initialize(aConfig);
         if (bSuccess)
@@ -532,7 +538,7 @@ bool AgentCoordinator::initializeNetworkClient()
     }
 }
 
-bool AgentCoordinator::sendToBackend(const OUString& rsMessage, const Any& rContext)
+bool AgentCoordinator::sendToBackend(const OUString& rsMessage, const Any& /* rContext */)
 {
     if (!m_pNetworkClient)
     {
@@ -619,7 +625,7 @@ void AgentCoordinator::handleNetworkError(const OUString& rsError)
     if (m_pErrorRecovery)
     {
         auto aStatistics = m_pErrorRecovery->getStatistics();
-        if (aStatistics.nTotalErrors.load() > 5)
+        if (aStatistics.nTotalErrors > 5)
         {
             SAL_INFO("sw.ai", "Multiple network errors detected, considering offline mode");
             if (m_bOnlineMode)
@@ -703,21 +709,21 @@ void AgentCoordinator::processOfflineQueue()
     // TODO: Implement in Task 6.5 (message queuing and authentication protocols)
 }
 
-bool AgentCoordinator::isCacheableRequest(const OUString& rsRequest) const
+bool AgentCoordinator::isCacheableRequest(const OUString& /* rsRequest */) const
 {
     // Determine if request can be cached
     // TODO: Implement caching logic
     return false;
 }
 
-OUString AgentCoordinator::getCachedResponse(const OUString& rsRequest) const
+OUString AgentCoordinator::getCachedResponse(const OUString& /* rsRequest */) const
 {
     // Get cached response
     // TODO: Implement caching logic
     return "";
 }
 
-void AgentCoordinator::cacheResponse(const OUString& rsRequest, const OUString& rsResponse)
+void AgentCoordinator::cacheResponse(const OUString& /* rsRequest */, const OUString& /* rsResponse */)
 {
     // Cache response for future use
     // TODO: Implement caching logic
@@ -780,16 +786,17 @@ bool AgentCoordinator::initializeWebSocketClient()
         
         // Configure WebSocket client
         Sequence<PropertyValue> aConfig(5);
-        aConfig[0].Name = "AutoReconnect";
-        aConfig[0].Value <<= true;
-        aConfig[1].Name = "MaxReconnectAttempts";
-        aConfig[1].Value <<= sal_Int32(3);
-        aConfig[2].Name = "ReconnectDelayMs";
-        aConfig[2].Value <<= sal_Int32(2000);
-        aConfig[3].Name = "HeartbeatIntervalMs";
-        aConfig[3].Value <<= sal_Int32(30000);
-        aConfig[4].Name = "EnableLogging";
-        aConfig[4].Value <<= true;
+        PropertyValue* pConfig = aConfig.getArray();
+        pConfig[0].Name = "AutoReconnect";
+        pConfig[0].Value <<= true;
+        pConfig[1].Name = "MaxReconnectAttempts";
+        pConfig[1].Value <<= sal_Int32(3);
+        pConfig[2].Name = "ReconnectDelayMs";
+        pConfig[2].Value <<= sal_Int32(2000);
+        pConfig[3].Name = "HeartbeatIntervalMs";
+        pConfig[3].Value <<= sal_Int32(30000);
+        pConfig[4].Name = "EnableLogging";
+        pConfig[4].Value <<= true;
         
         bool bSuccess = m_pWebSocketClient->initialize(aConfig);
         if (bSuccess)
@@ -959,14 +966,15 @@ bool AgentCoordinator::initializeErrorRecovery()
         
         // Configure error recovery manager
         Sequence<PropertyValue> aConfig(4);
-        aConfig[0].Name = "Enabled";
-        aConfig[0].Value <<= true;
-        aConfig[1].Name = "EnableLogging";
-        aConfig[1].Value <<= true;
-        aConfig[2].Name = "MaxConcurrentRetries";
-        aConfig[2].Value <<= sal_Int32(5);
-        aConfig[3].Name = "MaxErrorHistorySize";
-        aConfig[3].Value <<= sal_Int32(50);
+        PropertyValue* pConfig = aConfig.getArray();
+        pConfig[0].Name = "Enabled";
+        pConfig[0].Value <<= true;
+        pConfig[1].Name = "EnableLogging";
+        pConfig[1].Value <<= true;
+        pConfig[2].Name = "MaxConcurrentRetries";
+        pConfig[2].Value <<= sal_Int32(5);
+        pConfig[3].Name = "MaxErrorHistorySize";
+        pConfig[3].Value <<= sal_Int32(50);
         
         bool bSuccess = m_pErrorRecovery->initialize(aConfig);
         if (bSuccess)
@@ -975,7 +983,7 @@ bool AgentCoordinator::initializeErrorRecovery()
             
             // Set up callbacks for integrated error handling
             m_pErrorRecovery->setErrorCallback(
-                [this](const sw::ai::ErrorRecoveryManager::ErrorContext& rError) {
+                [](const sw::ai::ErrorRecoveryManager::ErrorContext& rError) {
                     SAL_WARN("sw.ai", "Error reported by ErrorRecoveryManager - " <<
                              "Service: " << rError.sServiceName << ", " <<
                              "Request: " << rError.sRequestId << ", " <<
@@ -1021,18 +1029,19 @@ bool AgentCoordinator::initializeMessageQueue()
         
         // Configure message queue
         Sequence<PropertyValue> aConfig(6);
-        aConfig[0].Name = "MaxQueueSize";
-        aConfig[0].Value <<= sal_Int32(1000);
-        aConfig[1].Name = "MaxMessageSize";
-        aConfig[1].Value <<= sal_Int32(1048576); // 1MB
-        aConfig[2].Name = "DefaultTTLSeconds";
-        aConfig[2].Value <<= sal_Int32(3600); // 1 hour
-        aConfig[3].Name = "EnablePersistence";
-        aConfig[3].Value <<= false; // Disable for now
-        aConfig[4].Name = "MaxMessagesPerSecond";
-        aConfig[4].Value <<= sal_Int32(50);
-        aConfig[5].Name = "EnableCompression";
-        aConfig[5].Value <<= false;
+        PropertyValue* pConfig = aConfig.getArray();
+        pConfig[0].Name = "MaxQueueSize";
+        pConfig[0].Value <<= sal_Int32(1000);
+        pConfig[1].Name = "MaxMessageSize";
+        pConfig[1].Value <<= sal_Int32(1048576); // 1MB
+        pConfig[2].Name = "DefaultTTLSeconds";
+        pConfig[2].Value <<= sal_Int32(3600); // 1 hour
+        pConfig[3].Name = "EnablePersistence";
+        pConfig[3].Value <<= false; // Disable for now
+        pConfig[4].Name = "MaxMessagesPerSecond";
+        pConfig[4].Value <<= sal_Int32(50);
+        pConfig[5].Name = "EnableCompression";
+        pConfig[5].Value <<= false;
         
         bool bSuccess = m_pMessageQueue->initialize(aConfig);
         if (bSuccess)
@@ -1065,16 +1074,17 @@ bool AgentCoordinator::initializeAuthenticationManager()
         
         // Configure authentication manager
         Sequence<PropertyValue> aConfig(5);
-        aConfig[0].Name = "SecureStorageEnabled";
-        aConfig[0].Value <<= true;
-        aConfig[1].Name = "AutoRefreshEnabled";
-        aConfig[1].Value <<= true;
-        aConfig[2].Name = "DefaultRefreshThreshold";
-        aConfig[2].Value <<= sal_Int32(300); // 5 minutes
-        aConfig[3].Name = "MaxRetryAttempts";
-        aConfig[3].Value <<= sal_Int32(3);
-        aConfig[4].Name = "TokenValidationTimeout";
-        aConfig[4].Value <<= sal_Int32(5000); // 5 seconds
+        PropertyValue* pConfig = aConfig.getArray();
+        pConfig[0].Name = "SecureStorageEnabled";
+        pConfig[0].Value <<= true;
+        pConfig[1].Name = "AutoRefreshEnabled";
+        pConfig[1].Value <<= true;
+        pConfig[2].Name = "DefaultRefreshThreshold";
+        pConfig[2].Value <<= sal_Int32(300); // 5 minutes
+        pConfig[3].Name = "MaxRetryAttempts";
+        pConfig[3].Value <<= sal_Int32(3);
+        pConfig[4].Name = "TokenValidationTimeout";
+        pConfig[4].Value <<= sal_Int32(5000); // 5 seconds
         
         bool bSuccess = m_pAuthManager->initialize(aConfig);
         if (bSuccess)
@@ -1241,5 +1251,14 @@ Reference<XInterface> SAL_CALL AgentCoordinator::create(
 }
 
 } // namespace sw::core::ai
+
+// UNO service registration implementation
+extern "C" SAL_DLLPUBLIC_EXPORT css::uno::XInterface*
+com_sun_star_comp_Writer_AIAgentCoordinator_get_implementation(
+    css::uno::XComponentContext* context,
+    css::uno::Sequence<css::uno::Any> const& /*args*/)
+{
+    return cppu::acquire(new sw::core::ai::AgentCoordinator(context));
+}
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

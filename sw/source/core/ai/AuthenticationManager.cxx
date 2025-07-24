@@ -14,7 +14,7 @@
 #include <comphelper/random.hxx>
 #include <tools/datetime.hxx>
 #include <rtl/ustrbuf.hxx>
-#include <rtl/base64.h>
+#include <comphelper/base64.hxx>
 #include <rtl/digest.h>
 #include <rtl/uuid.h>
 
@@ -345,7 +345,7 @@ bool AuthenticationManager::authenticateRequest(const OUString& rsRequestId,
 }
 
 AuthenticationManager::TokenStatus AuthenticationManager::validateToken(const OUString& rsServiceName, 
-                                                                       const OUString& rsToken)
+                                                                       const OUString& /* rsToken */)
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
     
@@ -610,11 +610,15 @@ OUString AuthenticationManager::generateAuthHeader(const AuthenticationCredentia
             
             // Base64 encode credentials
             OString sUtf8 = OUStringToOString(sCredentials, RTL_TEXTENCODING_UTF8);
-            OStringBuffer sEncodedBuf;
             
-            rtl::OStringBuffer aBuffer;
-            rtl_base64_encode(sUtf8.getStr(), sUtf8.getLength(), 
-                             aBuffer.getStr(), aBuffer.getCapacity());
+            // Convert to sequence
+            css::uno::Sequence<sal_Int8> aData(sUtf8.getLength());
+            sal_Int8* pData = aData.getArray();
+            for (sal_Int32 i = 0; i < sUtf8.getLength(); ++i)
+                pData[i] = sUtf8[i];
+            
+            OStringBuffer aBuffer;
+            comphelper::Base64::encode(aBuffer, aData);
             
             return OStringToOUString(aBuffer.makeStringAndClear(), RTL_TEXTENCODING_ASCII_US);
         }
@@ -745,7 +749,9 @@ void AuthenticationManager::parseConfiguration(const Sequence<PropertyValue>& rC
     {
         if (rProperty.Name == "SecureStorageEnabled")
         {
-            rProperty.Value >>= m_bSecureStorageEnabled;
+            bool bValue = false;
+            if (rProperty.Value >>= bValue)
+                m_bSecureStorageEnabled.store(bValue);
         }
         else if (rProperty.Name == "AutoRefreshEnabled")
         {
@@ -811,16 +817,16 @@ void AuthenticationManager::cleanupExpiredContexts()
     }
 }
 
-AuthenticationManager::AuthenticationStatistics AuthenticationManager::getStatistics() const
+AuthenticationManager::AuthenticationStatisticsData AuthenticationManager::getStatistics() const
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    return m_aStatistics;
+    return m_aStatistics.getData();
 }
 
 void AuthenticationManager::resetStatistics()
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
-    m_aStatistics = AuthenticationStatistics();
+    m_aStatistics.reset();
 }
 
 bool AuthenticationManager::isHealthy() const
@@ -831,7 +837,7 @@ bool AuthenticationManager::isHealthy() const
         return false;
     
     // Check if authentication success rate is reasonable
-    auto stats = m_aStatistics;
+    auto stats = m_aStatistics.getData();
     if (stats.nTotalRequests > 10)
     {
         double fSuccessRate = static_cast<double>(stats.nSuccessfulAuths) / stats.nTotalRequests;

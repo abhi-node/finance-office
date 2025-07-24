@@ -165,4 +165,8 @@
       constructor="org_apache_openoffice_comp_sw_sidebar_SwPanelFactory_get_implementation">
     <service name="com.sun.star.ui.UIElementFactory"/>
   </implementation>
+  <implementation name="com.sun.star.comp.Writer.AIAgentCoordinator"
+      constructor="com_sun_star_comp_Writer_AIAgentCoordinator_get_implementation">
+    <service name="com.sun.star.ai.AIAgentCoordinator"/>
+  </implementation>
 </component>

@@ -1661,8 +1661,8 @@ $(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/animations,\
 	XTransitionFilter \
 ))
 $(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/ai,\
+	AgentCoordinator \
 	XAIAgentCoordinator \
-	modules \
 ))
 $(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/auth,\
 	AuthenticationFailedException \

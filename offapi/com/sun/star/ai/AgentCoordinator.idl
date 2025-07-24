@@ -1,0 +1,40 @@
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/*
+ * This file is part of the LibreOffice project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+module com { module sun { module star { module ai {
+
+/** 
+ * Agent Coordinator Service for LibreOffice AI Integration.
+ * 
+ * This service provides the primary interface for coordinating AI agent operations
+ * within LibreOffice. It implements the XAIAgentCoordinator interface and serves
+ * as the bridge between LibreOffice components and the LangGraph multi-agent system.
+ * 
+ * The service handles user requests, manages document context processing, and
+ * coordinates agent workflows for intelligent document manipulation. It supports
+ * both simple operations (1-2s response) and complex multi-agent workflows (3-5s).
+ * 
+ * @since LibreOffice 7.6
+ */
+service AgentCoordinator : XAIAgentCoordinator
+{
+    /** 
+     * Creates an AgentCoordinator service instance.
+     * 
+     * The service automatically initializes communication with the LangGraph
+     * backend system and sets up the necessary infrastructure for agent
+     * coordination including HTTP/WebSocket clients, message queues, and
+     * authentication management.
+     */
+    create();
+};
+
+}; }; }; };
+
+/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

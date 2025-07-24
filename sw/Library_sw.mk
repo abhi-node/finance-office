@@ -533,6 +533,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
     sw/source/core/view/vnew \
     sw/source/core/view/vprint \
     sw/source/core/ai/AgentCoordinator \
+    sw/source/core/ai/DocumentContext \
     sw/source/core/ai/NetworkClient \
     sw/source/core/ai/WebSocketClient \
     sw/source/core/ai/ErrorRecoveryManager \

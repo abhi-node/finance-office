@@ -96,6 +96,8 @@ public:
         std::map<OUString, OUString> aCustomHeaders;
         std::map<OUString, OUString> aCustomParameters;
         
+        AuthenticationCredentials() = default;
+        
         AuthenticationCredentials(const OUString& rsId, const OUString& rsService, 
                                 AuthenticationType eAuthType = AuthenticationType::API_KEY)
             : sCredentialId(rsId), sServiceName(rsService), eType(eAuthType)
@@ -119,6 +121,8 @@ public:
         std::chrono::steady_clock::time_point aRequestTime;
         bool bAuthenticated;
         OUString sLastError;
+        
+        AuthenticationContext() = default;
         
         AuthenticationContext(const OUString& rsReqId, const OUString& rsService)
             : sRequestId(rsReqId), sServiceName(rsService)
@@ -162,7 +166,17 @@ private:
     AuthenticationCallback m_aAuthCallback;
     CredentialValidationCallback m_aValidationCallback;
     
-    // Statistics
+    // Statistics - separate atomic data from copyable snapshot
+    struct AuthenticationStatisticsData
+    {
+        sal_Int32 nTotalRequests;
+        sal_Int32 nSuccessfulAuths;
+        sal_Int32 nFailedAuths;
+        sal_Int32 nTokenRefreshes;
+        sal_Int32 nCredentialRotations;
+        std::chrono::steady_clock::time_point aLastReset;
+    };
+    
     struct AuthenticationStatistics
     {
         std::atomic<sal_Int32> nTotalRequests{0};
@@ -173,6 +187,26 @@ private:
         std::chrono::steady_clock::time_point aLastReset;
         
         AuthenticationStatistics() : aLastReset(std::chrono::steady_clock::now()) {}
+        
+        void reset() {
+            nTotalRequests = 0;
+            nSuccessfulAuths = 0;
+            nFailedAuths = 0;
+            nTokenRefreshes = 0;
+            nCredentialRotations = 0;
+            aLastReset = std::chrono::steady_clock::now();
+        }
+        
+        AuthenticationStatisticsData getData() const {
+            return {
+                nTotalRequests.load(),
+                nSuccessfulAuths.load(),
+                nFailedAuths.load(),
+                nTokenRefreshes.load(),
+                nCredentialRotations.load(),
+                aLastReset
+            };
+        }
     };
     
     AuthenticationStatistics m_aStatistics;
@@ -357,7 +391,7 @@ public:
     /**
      * Get authentication statistics
      */
-    AuthenticationStatistics getStatistics() const;
+    AuthenticationStatisticsData getStatistics() const;
     
     /**
      * Reset statistics

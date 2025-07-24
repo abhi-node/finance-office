@@ -87,6 +87,8 @@ public:
         std::map<OUString, OUString> aHeaders;
         std::map<OUString, OUString> aMetadata;
         
+        QueuedMessage() = default;
+        
         QueuedMessage(const OUString& rsId, const OUString& rsReqId, const OUString& rsService, 
                      const OUString& rsContent, MessagePriority ePrio = MessagePriority::NORMAL)
             : sMessageId(rsId), sRequestId(rsReqId), sServiceName(rsService), sContent(rsContent)
@@ -137,7 +139,18 @@ private:
     AcknowledgmentCallback m_aAckCallback;
     ErrorCallback m_aErrorCallback;
     
-    // Statistics
+    // Statistics - separate atomic data from copyable snapshot
+    struct QueueStatisticsData
+    {
+        sal_Int32 nTotalEnqueued;
+        sal_Int32 nTotalDelivered;
+        sal_Int32 nTotalAcknowledged;
+        sal_Int32 nTotalFailed;
+        sal_Int32 nTotalExpired;
+        sal_Int32 nCurrentQueueSize;
+        std::chrono::steady_clock::time_point aLastReset;
+    };
+    
     struct QueueStatistics
     {
         std::atomic<sal_Int32> nTotalEnqueued{0};
@@ -149,6 +162,28 @@ private:
         std::chrono::steady_clock::time_point aLastReset;
         
         QueueStatistics() : aLastReset(std::chrono::steady_clock::now()) {}
+        
+        void reset() {
+            nTotalEnqueued = 0;
+            nTotalDelivered = 0;
+            nTotalAcknowledged = 0;
+            nTotalFailed = 0;
+            nTotalExpired = 0;
+            nCurrentQueueSize = 0;
+            aLastReset = std::chrono::steady_clock::now();
+        }
+        
+        QueueStatisticsData getData() const {
+            return {
+                nTotalEnqueued.load(),
+                nTotalDelivered.load(),
+                nTotalAcknowledged.load(),
+                nTotalFailed.load(),
+                nTotalExpired.load(),
+                nCurrentQueueSize.load(),
+                aLastReset
+            };
+        }
     };
     
     QueueStatistics m_aStatistics;
@@ -327,7 +362,7 @@ public:
     /**
      * Get queue statistics
      */
-    QueueStatistics getStatistics() const;
+    QueueStatisticsData getStatistics() const;
     
     /**
      * Reset statistics
