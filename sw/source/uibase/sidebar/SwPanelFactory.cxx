@@ -34,6 +34,7 @@
 #include "TableEditPanel.hxx"
 #include <navipi.hxx>
 #include <redlndlg.hxx>
+#include "../../ui/sidebar/ai/AIPanel.hxx"
 
 #include <sfx2/sidebar/SidebarPanelBase.hxx>
 #include <vcl/weldutils.hxx>
@@ -223,6 +224,12 @@ Reference<ui::XUIElement> SAL_CALL SwPanelFactory::createUIElement (
             = sw::sidebar::QuickFindPanel::Create(pParent, xFrame);
         xElement = sfx2::sidebar::SidebarPanelBase::Create(rsResourceURL, xFrame, std::move(xPanel),
                                                            ui::LayoutSize(-1, -1, -1));
+    }
+    else if (rsResourceURL.endsWith("/AIPanel"))
+    {
+        std::unique_ptr<PanelLayout> xPanel = sw::sidebar::AIPanel::Create(pParent, xFrame);
+        xElement = sfx2::sidebar::SidebarPanelBase::Create(
+            rsResourceURL, xFrame, std::move(xPanel), ui::LayoutSize(-1, -1, -1));
     }
 
     return xElement;
