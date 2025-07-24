@@ -6,28 +6,55 @@ This document defines the complete folder structure and component organization f
 
 ## Root Directory Structure
 
-### LangGraph Agents System
+### LangGraph Agents System - Intelligent Routing Architecture
 ```
 langgraph-agents/
 ├── agents/
 │   ├── __init__.py
-│   ├── document_master.py             # Primary orchestrator agent
-│   ├── context_analysis.py           # Document understanding agent  
+│   ├── document_master.py             # Intelligent orchestrator with adaptive routing
+│   │   ├── analyze_request_complexity()      # Determines simple/moderate/complex
+│   │   ├── route_simple_workflow()           # Direct paths for 1-2s responses
+│   │   ├── route_moderate_workflow()         # Focused paths for 2-4s responses
+│   │   └── route_complex_workflow()          # Full orchestration for 3-5s responses
+│   ├── context_analysis.py           # Document understanding agent
+│   │   ├── lightweight_context()             # Quick analysis for simple operations
+│   │   ├── focused_analysis()               # Targeted analysis for moderate ops
+│   │   └── comprehensive_analysis()         # Full analysis for complex operations
 │   ├── content_generation.py         # Writing and content creation agent
+│   │   ├── template_content()              # Pre-built responses for simple requests
+│   │   ├── adaptive_content()              # Dynamic generation for moderate requests
+│   │   └── comprehensive_content()         # Full AI writing for complex requests
 │   ├── formatting.py                 # Document styling and layout agent
+│   │   ├── default_formatting()            # Template-based formatting (simple)
+│   │   ├── adaptive_formatting()           # Context-aware formatting (moderate)
+│   │   └── professional_formatting()       # Full styling suite (complex)
 │   ├── data_integration.py           # External API integration agent
+│   │   ├── cached_data_lookup()            # Fast cached responses
+│   │   ├── targeted_api_calls()            # Focused data retrieval
+│   │   └── comprehensive_research()        # Multi-source data integration
 │   ├── validation.py                 # Quality assurance agent
+│   │   ├── fast_validation()               # Basic checks for simple operations
+│   │   ├── focused_validation()            # Targeted quality checks
+│   │   └── comprehensive_validation()      # Full compliance and quality review
 │   └── execution.py                  # LibreOffice UNO services operations agent
+│       ├── direct_uno_calls()              # Simple operations bypass
+│       ├── coordinated_execution()         # Moderate operation coordination
+│       └── complex_operation_manager()     # Full transaction management
 ├── tools/
 │   ├── __init__.py
 │   ├── document_tools.py             # Document manipulation utilities
 │   ├── formatting_tools.py           # Text and style formatting tools
 │   ├── api_tools.py                  # External API connection tools
 │   └── validation_tools.py           # Content validation utilities
-├── graph.py                          # LangGraph workflow definition
+├── graph.py                          # LangGraph workflow definition with conditional routing
 ├── state.py                          # Shared document state schema
 ├── bridge.py                         # LibreOffice UNO service bridge
-├── config.py                         # Configuration management
+├── config.py                         # Configuration management with performance tuning
+├── routing/                          # Intelligent routing system
+│   ├── __init__.py
+│   ├── complexity_analyzer.py        # Request complexity assessment
+│   ├── workflow_router.py            # Dynamic workflow path selection
+│   └── performance_optimizer.py      # Response time optimization
 ├── requirements.txt                  # Dependencies
 └── README.md                         # Documentation
 ```
@@ -189,18 +216,29 @@ officecfg/registry/data/org/openoffice/Office/UI/Sidebar.xcu  # ✅ Panel regist
 **Goal**: ✅ ACHIEVED - Working chat interface that can receive user input and display responses
 **Status**: Fully functional chat UI with proper LibreOffice integration
 
-### Phase 2: Document Integration
+### Phase 2: Document Integration with Intelligent Routing
 ```
 sw/source/core/ai/operations/
-├── DocumentOperations.cxx         # Basic text insertion/formatting
+├── DocumentOperations.cxx         # Multi-complexity document operations
+│   ├── executeSimpleOperation()        # Direct UNO calls (1-2s)
+│   ├── executeModerateOperation()      # Coordinated operations (2-4s)
+│   └── executeComplexOperation()       # Full transaction management (3-5s)
 └── DocumentOperations.hxx
 
 sw/source/core/ai/
-├── DocumentContext.cxx            # Document state analysis
-└── DocumentContext.hxx
+├── DocumentContext.cxx            # Adaptive document state analysis
+│   ├── getLightweightContext()         # Quick context for simple operations
+│   ├── getFocusedContext()             # Targeted analysis for moderate operations
+│   └── getComprehensiveContext()       # Full analysis for complex operations
+├── DocumentContext.hxx
+└── PerformanceOptimizer.cxx       # Response time optimization and caching
 ```
 
-**Goal**: AI can perform basic document operations through established UNO interfaces
+**Goal**: AI provides optimal performance for all operation types through intelligent routing
+**Performance Targets**: 
+- Simple operations (chart creation, formatting): 1-2 seconds
+- Moderate operations (content generation, document styling): 2-4 seconds  
+- Complex operations (financial reports, research integration): 3-5 seconds
 
 ### Phase 3: Agent Expansion
 ```

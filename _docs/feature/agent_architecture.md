@@ -28,30 +28,96 @@ The architecture implements LangGraph's stateful workflow patterns to maintain c
 
 ## Agent Hierarchy Structure
 
-### DocumentMasterAgent (Supervisor)
+### DocumentMasterAgent (Intelligent Supervisor)
 
-**Role**: Primary orchestrator responsible for understanding user requests, coordinating sub-agents, and ensuring task completion.
+**Role**: Primary orchestrator responsible for understanding user requests, making intelligent routing decisions, coordinating sub-agents, and ensuring optimal task completion based on operation complexity.
+
+**Core Intelligence - Request Analysis & Routing:**
+- **Intent Classification**: Analyzes user requests to determine operation type (formatting, content generation, data integration, etc.)
+- **Complexity Assessment**: Evaluates request complexity (simple, moderate, complex) to determine appropriate workflow path
+- **Agent Selection**: Intelligently chooses which agents are needed based on request requirements
+- **Performance Optimization**: Routes simple operations through shortened workflows for sub-second response times
+
+**Routing Decision Matrix:**
+```python
+def analyze_and_route_request(self, user_request: str, context: Dict) -> str:
+    """Intelligent routing based on request complexity and type"""
+    
+    # Simple Operations (1-2 seconds) - Minimal agent involvement
+    simple_patterns = {
+        "chart_creation": ["create chart", "insert graph", "add chart"],
+        "basic_formatting": ["make bold", "change font", "font size"],
+        "table_operations": ["insert table", "create table", "add table"],
+        "direct_editing": ["delete", "cut", "paste", "select all"]
+    }
+    
+    # Moderate Operations (2-4 seconds) - Focused agent subset
+    moderate_patterns = {
+        "content_writing": ["write summary", "create paragraph", "improve text"],
+        "document_styling": ["format document", "apply styles", "fix formatting"],
+        "simple_research": ["define term", "explain concept", "clarify meaning"]
+    }
+    
+    # Complex Operations (3-5 seconds) - Full agent orchestration
+    complex_patterns = {
+        "financial_analysis": ["financial report", "market analysis", "investment summary"],
+        "research_integration": ["research and write", "analyze and create", "comprehensive report"],
+        "multi_step_operations": ["restructure document", "complete analysis", "full review"]
+    }
+    
+    # Route to appropriate workflow based on pattern matching
+    if self.matches_simple_patterns(user_request, simple_patterns):
+        return self.route_simple_workflow(user_request, context)
+    elif self.matches_moderate_patterns(user_request, moderate_patterns):
+        return self.route_moderate_workflow(user_request, context)
+    else:
+        return self.route_complex_workflow(user_request, context)
+```
+
+**Workflow Orchestration Strategies:**
+
+**Simple Operations (Direct Path):**
+- Skip unnecessary agents (DataIntegration, ContentGeneration for basic formatting)
+- Use cached document context when available
+- Apply default parameters for common operations
+- Direct execution for formatting and basic editing tasks
+
+**Moderate Operations (Focused Path):**
+- Selective agent involvement based on operation type
+- Parallel processing where possible (Context + specific specialist)
+- Cached analysis results for similar operations
+- Streamlined validation for non-critical operations
+
+**Complex Operations (Full Orchestration):**
+- Complete agent network involvement
+- Iterative refinement and quality assurance
+- Human-in-the-loop approvals for significant changes
+- Comprehensive validation and error recovery
 
 **Responsibilities:**
-- Parse and interpret natural language user requests
-- Determine required sub-agents for task completion
-- Coordinate agent execution order and dependencies
-- Aggregate results from sub-agents into coherent responses
-- Handle error conditions and recovery strategies
-- Manage human-in-the-loop interactions for complex decisions
+- Parse and interpret natural language user requests with contextual intelligence
+- Determine optimal workflow path based on complexity and performance requirements
+- Coordinate agent execution with intelligent parallelization and sequencing
+- Aggregate results from sub-agents into coherent, contextually appropriate responses
+- Handle error conditions with graceful degradation and alternative approaches
+- Manage human-in-the-loop interactions only when necessary for complex decisions
+- Optimize system performance through intelligent agent utilization
 
 **Key Capabilities:**
-- Intent classification and task decomposition  
-- Agent routing and workflow orchestration
-- Result synthesis and quality validation
-- User communication and feedback management
-- Error handling and graceful degradation
+- **Intelligent Intent Classification**: Advanced NLP analysis to determine request type and complexity
+- **Dynamic Agent Routing**: Real-time decision making for optimal workflow paths
+- **Performance-Aware Orchestration**: Balances response quality with speed requirements
+- **Context-Aware Processing**: Leverages document state and user history for smarter decisions
+- **Result Synthesis and Quality Validation**: Ensures coherent outputs regardless of workflow complexity
+- **User Communication Management**: Provides appropriate feedback based on operation complexity
+- **Error Handling and Graceful Degradation**: Maintains functionality even when individual agents fail
 
 **State Management:**
-- Maintains overall task status and progress tracking
-- Coordinates shared state updates across all sub-agents
-- Manages conversation history and user context
-- Tracks agent performance and optimization metrics
+- Maintains overall task status and progress tracking with complexity-aware metrics
+- Coordinates shared state updates across active sub-agents (skipping inactive ones)
+- Manages conversation history and user context with performance optimization
+- Tracks agent performance and routing efficiency for continuous improvement
+- Caches frequently used analysis results for performance optimization
 
 ### ContextAnalysisAgent
 
@@ -304,56 +370,100 @@ class DocumentState(TypedDict):
 
 ## Graph Flow Architecture
 
-### Primary Workflow Patterns
+### Primary Workflow Patterns - Adaptive Routing
 
-**Sequential Processing Pattern:**
+**Simple Operation Pattern (1-2 seconds):**
 ```
-User Input � ContextAnalysis � [Specialist Agent] � Validation � Execution � Response
-```
+User Input → DocumentMaster(Routing) → [Minimal Agent Subset] → Direct Execution → Response
 
-**Parallel Processing Pattern:**
-```
-User Input � ContextAnalysis � [Multiple Specialist Agents in Parallel] � Aggregation � Validation � Execution � Response
-```
-
-**Iterative Refinement Pattern:**
-```
-User Input � ContextAnalysis � [Specialist Agent] � Validation � [Refinement Loop] � Execution � Response
+Examples:
+├─ "Create chart" → Context(Quick) → Formatting(Defaults) → Validation(Fast) → Execution
+├─ "Make bold" → Context(Cached) → Formatting(Direct) → Execution  
+└─ "Insert table" → Context(Position) → Formatting(Template) → Validation(Basic) → Execution
 ```
 
-**Complex Task Orchestration Pattern:**
+**Moderate Operation Pattern (2-4 seconds):**
 ```
-User Input � TaskDecomposition � [Multiple Sequential and Parallel Phases] � ResultSynthesis � Validation � Execution � Response
+User Input → DocumentMaster(Analysis) → [Focused Agent Subset] → Streamlined Validation → Execution → Response
+
+Examples:
+├─ "Write summary" → Context(Analysis) → Content(Generation) → Formatting(Style) → Validation → Execution
+├─ "Format document" → Context(Structure) → Formatting(Comprehensive) → Validation → Execution
+└─ "Improve text" → Context(Content) → Content(Enhancement) → Validation → Execution
 ```
 
-### Conditional Routing Logic
+**Complex Operation Pattern (3-5 seconds):**
+```
+User Input → DocumentMaster(Orchestration) → [Full Agent Network] → Comprehensive Validation → Execution → Response
+
+Examples:
+├─ "Financial report" → Context → DataIntegration ∥ ContentGeneration → Formatting → Validation → Execution
+├─ "Research integration" → Context → DataIntegration → ContentGeneration → Formatting → Validation → Execution
+└─ "Multi-step analysis" → Context → [Iterative Agent Cycles] → ResultSynthesis → Validation → Execution
+```
+
+**Parallel Processing Optimization:**
+```
+Complex Operations with Parallel Execution:
+Context Analysis ∥ Data Integration → Content Generation → Formatting → Validation → Execution
+     │                    │                    │              │             │          │
+   0.5s                 1.5s                1.8s           0.8s          0.6s       1.2s
+   └─────────────── Total: ~6.4s (within 5s target due to parallelization) ──────────────┘
+```
+
+### Conditional Routing Logic - Intelligence Engine
 
 The DocumentMasterAgent implements sophisticated routing logic to direct workflow through appropriate agents based on task requirements:
 
-**Simple Formatting Tasks:**
-- Route: Context � Formatting � Validation � Execution
-- Triggers: Font changes, basic styling, simple layout adjustments
-- Optimization: Direct routing minimizes latency for common operations
+**Performance-Optimized Simple Tasks:**
+- **Route**: Context(Lightweight) → Formatting(Defaults) → Validation(Fast) → Execution
+- **Triggers**: Font changes, basic styling, chart creation with defaults, table insertion
+- **Optimization**: 
+  - Cached document context reuse
+  - Default parameter application
+  - Skip unnecessary validation steps
+  - Direct UNO service calls
+- **Response Time**: 1-2 seconds
 
-**Content Generation Tasks:**
-- Route: Context � DataIntegration (optional) � ContentGeneration � Formatting � Validation � Execution
-- Triggers: Writing requests, content creation, document drafting
-- Optimization: Parallel data gathering and content generation when possible
+**Content-Focused Moderate Tasks:**
+- **Route**: Context(Focused) → ContentGeneration → Formatting(Adaptive) → Validation(Streamlined) → Execution
+- **Triggers**: Writing requests, content improvement, document summarization, basic research
+- **Optimization**: 
+  - Parallel context analysis with content preparation
+  - Cached style preferences
+  - Streamlined quality checks for non-critical content
+  - Efficient content insertion patterns
+- **Response Time**: 2-4 seconds
 
-**Financial Document Creation:**
-- Route: Context � DataIntegration � ContentGeneration � Formatting � Validation � Execution
-- Triggers: Financial reports, market analysis, data-driven documents
-- Optimization: Pipeline data integration with content generation
+**Data-Driven Financial Tasks:**
+- **Route**: Context(Comprehensive) → DataIntegration ∥ ContentGeneration → Formatting(Professional) → Validation(Compliance) → Execution
+- **Triggers**: Financial reports, market analysis, data visualization, regulatory documents
+- **Optimization**: 
+  - Parallel data fetching with content structuring
+  - Cached financial data with freshness validation
+  - Professional template application
+  - Compliance validation with regulatory standards
+- **Response Time**: 3-5 seconds
 
-**Complex Multi-Step Operations:**
-- Route: Context � [Multiple Agent Cycles] � Validation � Execution
-- Triggers: Document restructuring, comprehensive analysis, multi-format operations
-- Optimization: Intelligent agent reuse and result caching
+**Complex Multi-Phase Operations:**
+- **Route**: Context(Full) → [Multiple Agent Cycles] → ResultSynthesis → Validation(Comprehensive) → Execution(Coordinated)
+- **Triggers**: Document restructuring, comprehensive analysis, multi-format operations, collaborative reviews
+- **Optimization**: 
+  - Intelligent agent reuse and state preservation
+  - Result caching between operation phases
+  - Progressive disclosure of complex operations
+  - Human-in-the-loop approvals for significant changes
+- **Response Time**: 3-5 seconds (may require user approval extensions)
 
-**Research and Analysis Tasks:**
-- Route: Context � DataIntegration � ContentGeneration � Validation � Execution
-- Triggers: Research integration, fact checking, external information incorporation
-- Optimization: Parallel research gathering with preliminary content structuring
+**Research and Integration Tasks:**
+- **Route**: Context(Research-Aware) → DataIntegration(Multi-Source) → ContentGeneration(Synthesis) → Validation(Accuracy) → Execution
+- **Triggers**: Research integration, fact checking, external information incorporation, academic writing
+- **Optimization**: 
+  - Parallel research gathering with preliminary content structuring
+  - Source credibility validation
+  - Citation management and formatting
+  - Accuracy verification with multiple sources
+- **Response Time**: 3-5 seconds
 
 ### Error Handling and Recovery Flows
 
