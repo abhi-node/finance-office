@@ -1,0 +1,144 @@
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/*
+ * This file is part of the LibreOffice project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+module com { module sun { module star { module ai {
+
+/** 
+ * Interface for coordinating AI agent operations within LibreOffice.
+ * 
+ * This interface provides the primary communication bridge between LibreOffice
+ * components and the LangGraph multi-agent system. It handles user requests,
+ * document context processing, and coordination of agent workflows for 
+ * intelligent document manipulation.
+ * 
+ * The interface supports both simple operations (1-2s response time) and
+ * complex multi-agent workflows (3-5s response time) through intelligent
+ * routing and performance optimization.
+ * 
+ * @since LibreOffice 7.6
+ */
+interface XAIAgentCoordinator : ::com::sun::star::uno::XInterface
+{
+    /** 
+     * Process a user request with document context.
+     * 
+     * This is the primary method for handling user interactions with the AI system.
+     * It accepts natural language requests and document context, then coordinates
+     * the appropriate agent workflow to fulfill the request.
+     * 
+     * @param rsRequest
+     *     The user's natural language request describing the desired operation
+     *     (e.g., "Create a financial report", "Format this table", "Improve this text")
+     * 
+     * @param rDocumentContext
+     *     Document context information including cursor position, selected text,
+     *     document structure, and other relevant state data. This context enables
+     *     agents to make informed decisions about how to fulfill the request.
+     * 
+     * @returns
+     *     A response string containing the agent's reply to the user, including
+     *     confirmation of actions taken, explanations of changes made, or requests
+     *     for clarification if the original request was ambiguous.
+     * 
+     * @throws com::sun::star::lang::IllegalArgumentException
+     *     if the request is empty or the document context is invalid
+     * 
+     * @throws com::sun::star::uno::RuntimeException
+     *     if agent processing fails due to system errors or resource constraints
+     */
+    string processUserRequest(
+        [in] string rsRequest,
+        [in] any rDocumentContext
+    ) raises (
+        com::sun::star::lang::IllegalArgumentException,
+        com::sun::star::uno::RuntimeException
+    );
+
+    /** 
+     * Cancel an ongoing operation.
+     * 
+     * Cancels a long-running agent operation, allowing users to interrupt
+     * complex workflows that are taking longer than expected.
+     * 
+     * @param nOperationId
+     *     The unique identifier of the operation to cancel. This ID is typically
+     *     returned by processUserRequest for operations that may take significant time.
+     * 
+     * @throws com::sun::star::lang::IllegalArgumentException
+     *     if the operation ID is invalid or the operation has already completed
+     */
+    void cancelOperation([in] hyper nOperationId)
+        raises (com::sun::star::lang::IllegalArgumentException);
+
+    /** 
+     * Get list of available agents.
+     * 
+     * Returns a list of agent names that are currently available for processing.
+     * This information can be used for system diagnostics, user information,
+     * or advanced configuration interfaces.
+     * 
+     * @returns
+     *     Sequence of agent names currently registered and available
+     *     (e.g., "DocumentMaster", "ContextAnalysis", "ContentGeneration", etc.)
+     */
+    sequence<string> getAvailableAgents();
+
+    /** 
+     * Check if the system is online.
+     * 
+     * Determines whether the agent system has connectivity to external services
+     * and is fully operational. When offline, the system may still perform
+     * basic operations using cached data and local processing.
+     * 
+     * @returns
+     *     TRUE if the system is online and all external services are accessible,
+     *     FALSE if operating in degraded or offline mode
+     */
+    boolean isOnline();
+
+    /** 
+     * Configure agent system settings.
+     * 
+     * Allows configuration of agent behavior, performance parameters, and
+     * integration settings. Configuration changes take effect immediately
+     * and persist across application sessions.
+     * 
+     * @param rConfig
+     *     Sequence of property-value pairs containing configuration settings.
+     *     Common properties include:
+     *     - "MaxRetries": Maximum number of retry attempts for failed operations
+     *     - "TimeoutMs": Timeout in milliseconds for agent operations
+     *     - "EnableWebSocket": Boolean flag for WebSocket communication
+     *     - "OfflineMode": Boolean flag for offline operation mode
+     *     - "MaxQueueSize": Maximum number of queued operations
+     * 
+     * @throws com::sun::star::lang::IllegalArgumentException
+     *     if configuration contains invalid property names or values
+     */
+    void setConfiguration(
+        [in] sequence<com::sun::star::beans::PropertyValue> rConfig
+    ) raises (com::sun::star::lang::IllegalArgumentException);
+
+    /** 
+     * Get current configuration settings.
+     * 
+     * Retrieves the current agent system configuration including all
+     * performance parameters, feature flags, and integration settings.
+     * 
+     * @returns
+     *     Sequence of property-value pairs containing current configuration.
+     *     This includes both user-configurable settings and system status
+     *     information useful for diagnostics and troubleshooting.
+     */
+    sequence<com::sun::star::beans::PropertyValue> getConfiguration();
+};
+
+}; }; }; };
+
+/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

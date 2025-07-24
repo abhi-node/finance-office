@@ -1660,6 +1660,10 @@ $(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/animations,\
 	XTimeContainer \
 	XTransitionFilter \
 ))
+$(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/ai,\
+	XAIAgentCoordinator \
+	modules \
+))
 $(eval $(call gb_UnoApi_add_idlfiles,offapi,com/sun/star/auth,\
 	AuthenticationFailedException \
 	InvalidArgumentException \

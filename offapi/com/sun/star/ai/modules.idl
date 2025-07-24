@@ -1,0 +1,33 @@
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/*
+ * This file is part of the LibreOffice project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+module com { module sun { module star { module ai {
+
+/** AI Integration Module for LibreOffice
+ *
+ * The AI module provides interfaces and services for integrating artificial
+ * intelligence capabilities into LibreOffice applications. This includes:
+ *
+ * <ul>
+ * <li>Agent coordination for LangGraph multi-agent systems</li>
+ * <li>Document context analysis and processing</li>
+ * <li>Natural language request processing</li>
+ * <li>External API integration for data and services</li>
+ * <li>Intelligent document manipulation through UNO services</li>
+ * </ul>
+ *
+ * The primary interface for AI capabilities is XAIAgentCoordinator, which
+ * serves as the bridge between LibreOffice components and AI agent systems.
+ *
+ * @since LibreOffice 7.6
+ */
+
+}; }; }; };
+
+/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
