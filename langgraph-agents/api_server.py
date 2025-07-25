@@ -49,15 +49,27 @@ class LibreOfficeRequest(BaseModel):
     context: Optional[Dict[str, Any]] = Field(default=None, description="Document context from C++")
 
 class LibreOfficeResponse(BaseModel):
-    """Standard response format for LibreOffice C++ AgentCoordinator"""
+    """Enhanced response format for LibreOffice C++ AgentCoordinator with separate operations and content"""
     request_id: str
     success: bool
+    
+    # Enhanced: Separate operations and content fields
+    operations: List[Dict[str, Any]] = Field(default_factory=list, description="Document operations to execute")
+    response_content: str = Field(default="", description="Chat response content for user display")
+    operation_summaries: List[str] = Field(default_factory=list, description="Human-readable operation descriptions")
+    
+    # Legacy compatibility fields
     result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     progress_updates: List[Dict[str, Any]] = Field(default_factory=list)
     execution_time_ms: float = 0.0
     agent_results: Dict[str, Any] = Field(default_factory=dict)
     final_state: Optional[Dict[str, Any]] = None
+    
+    # Enhanced metadata and formatting
+    content_changes: Dict[str, Any] = Field(default_factory=dict, description="Document content modifications")
+    formatting_changes: Dict[str, Any] = Field(default_factory=dict, description="Formatting state changes")
+    warnings: List[str] = Field(default_factory=list, description="Validation warnings or notices")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class WebSocketMessage(BaseModel):
@@ -178,19 +190,76 @@ async def process_request_with_bridge(
         response_data = json.loads(response_json)
         execution_time_ms = (time.time() - start_time) * 1000
         
-        # Create LibreOffice-compatible response
+        # Extract enhanced fields from bridge response
+        result = response_data.get("result", {})
+        
+        # Enhanced: Extract operations and response content separately
+        operations = []
+        response_content = ""
+        operation_summaries = []
+        content_changes = {}
+        formatting_changes = {}
+        warnings = []
+        
+        if isinstance(result, dict):
+            # Extract operations for execution
+            operations = result.get("operations", [])
+            
+            # Extract chat response content
+            response_content = result.get("response_content", "")
+            
+            # Extract operation summaries for user feedback
+            operation_summaries = result.get("operation_summaries", [])
+            
+            # Extract content and formatting changes
+            content_changes = result.get("content_changes", {})
+            formatting_changes = result.get("formatting_changes", {})
+            
+            # Extract warnings
+            warnings = result.get("warnings", [])
+        
+        # Fallback: Generate response content if none provided
+        if not response_content:
+            if operations:
+                op_count = len(operations)
+                if op_count == 1:
+                    response_content = "Operation prepared for execution."
+                else:
+                    response_content = f"{op_count} operations prepared for execution."
+            else:
+                response_content = "Request processed successfully."
+        
+        # Create enhanced LibreOffice-compatible response
         return LibreOfficeResponse(
             request_id=request_id,
             success=response_data.get("success", False),
-            result=response_data.get("result"),
+            
+            # Enhanced: Separate operations and content
+            operations=operations,
+            response_content=response_content,
+            operation_summaries=operation_summaries,
+            
+            # Enhanced: Content and formatting changes
+            content_changes=content_changes,
+            formatting_changes=formatting_changes,
+            warnings=warnings,
+            
+            # Legacy compatibility
+            result=result,
             error_message=response_data.get("error_message"),
             execution_time_ms=execution_time_ms,
             agent_results=response_data.get("agent_results", {}),
             final_state=response_data.get("final_state"),
+            
+            # Enhanced metadata
             metadata={
                 "request_type": request_type,
                 "processing_time_ms": execution_time_ms,
-                "headers": headers
+                "headers": headers,
+                "operations_count": len(operations),
+                "response_length": len(response_content),
+                "has_warnings": len(warnings) > 0,
+                "bridge_status": "success"
             }
         )
         
@@ -202,11 +271,21 @@ async def process_request_with_bridge(
         return LibreOfficeResponse(
             request_id=request_id,
             success=False,
+            operations=[],
+            response_content=f"Error: {error_msg}",
+            operation_summaries=[],
+            content_changes={},
+            formatting_changes={},
+            warnings=[],
             error_message=error_msg,
             execution_time_ms=execution_time_ms,
             metadata={
                 "request_type": request_type,
-                "error": str(e)
+                "error": str(e),
+                "operations_count": 0,
+                "response_length": len(error_msg),
+                "has_warnings": False,
+                "bridge_status": "error"
             }
         )
 

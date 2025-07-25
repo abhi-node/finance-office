@@ -338,8 +338,45 @@ OUString AgentCoordinator::processSimpleRequest(
             
             if (aResponse.bSuccess)
             {
-                // Parse response and return processed result
-                return "AI processed (simple): " + rsRequest;
+                // Parse enhanced JSON response format
+                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
+                if (aParsed.bSuccess)
+                {
+                    // Return response content for user display
+                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
+                    
+                    // PHASE 5 & 6: Translate and Execute operations
+                    if (hasExecutableOperations(aParsed))
+                    {
+                        SAL_INFO("sw.ai", "Simple request has " << aParsed.aOperations.size() << " operations to execute");
+                        
+                        // PHASE 5: Translate operations to UNO format
+                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
+                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
+                        
+                        // PHASE 6: Execute operations via DocumentOperations service
+                        if (!aTranslatedOps.empty())
+                        {
+                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
+                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
+                            SAL_INFO("sw.ai", "Simple request execution completed: " << sExecutionSummary);
+                            
+                            // Append execution summary to display response
+                            if (!sDisplayResponse.isEmpty())
+                            {
+                                sDisplayResponse += "\n\n";
+                            }
+                            sDisplayResponse += "✓ " + sExecutionSummary;
+                        }
+                    }
+                    
+                    return sDisplayResponse;
+                }
+                else
+                {
+                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
+                    return "AI processed (simple): " + rsRequest + " - Response format error";
+                }
             }
         }
         
@@ -379,8 +416,45 @@ OUString AgentCoordinator::processModerateRequest(
             
             if (aResponse.bSuccess)
             {
-                // Parse response and return processed result
-                return "AI processed (moderate): " + rsRequest;
+                // Parse enhanced JSON response format
+                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
+                if (aParsed.bSuccess)
+                {
+                    // Return response content for user display
+                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
+                    
+                    // PHASE 5 & 6: Translate and Execute operations
+                    if (hasExecutableOperations(aParsed))
+                    {
+                        SAL_INFO("sw.ai", "Moderate request has " << aParsed.aOperations.size() << " operations to execute");
+                        
+                        // PHASE 5: Translate operations to UNO format
+                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
+                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
+                        
+                        // PHASE 6: Execute operations via DocumentOperations service
+                        if (!aTranslatedOps.empty())
+                        {
+                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
+                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
+                            SAL_INFO("sw.ai", "Moderate request execution completed: " << sExecutionSummary);
+                            
+                            // Append execution summary to display response
+                            if (!sDisplayResponse.isEmpty())
+                            {
+                                sDisplayResponse += "\n\n";
+                            }
+                            sDisplayResponse += "✓ " + sExecutionSummary;
+                        }
+                    }
+                    
+                    return sDisplayResponse;
+                }
+                else
+                {
+                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
+                    return "AI processed (moderate): " + rsRequest + " - Response format error";
+                }
             }
             else
             {
@@ -452,8 +526,53 @@ OUString AgentCoordinator::processComplexRequest(
             
             if (aResponse.bSuccess)
             {
-                // Parse response and return processed result
-                return "AI processed (complex): " + rsRequest + " - Full agent workflow completed";
+                // Parse enhanced JSON response format
+                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
+                if (aParsed.bSuccess)
+                {
+                    // Return response content for user display
+                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
+                    
+                    // PHASE 5: Translate operations to UNO format
+                    if (hasExecutableOperations(aParsed))
+                    {
+                        SAL_INFO("sw.ai", "Complex request has " << aParsed.aOperations.size() << " operations to execute");
+                        
+                        // Translate operations to UNO format
+                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
+                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
+                        
+                        // Log translated operations for verification
+                        for (size_t i = 0; i < aTranslatedOps.size(); ++i)
+                        {
+                            const auto& rOp = aTranslatedOps[i];
+                            SAL_INFO("sw.ai", "Translated Operation " << (i+1) << ": " << rOp.sOperationType << 
+                                     " (priority: " << rOp.nPriority << ", params: " << rOp.aParameters.getLength() << ")");
+                        }
+                        
+                        // PHASE 6: Execute operations via DocumentOperations service
+                        if (!aTranslatedOps.empty())
+                        {
+                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
+                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
+                            SAL_INFO("sw.ai", "Complex request execution completed: " << sExecutionSummary);
+                            
+                            // Append execution summary to display response
+                            if (!sDisplayResponse.isEmpty())
+                            {
+                                sDisplayResponse += "\n\n";
+                            }
+                            sDisplayResponse += "✓ " + sExecutionSummary;
+                        }
+                    }
+                    
+                    return sDisplayResponse;
+                }
+                else
+                {
+                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
+                    return "AI processed (complex): " + rsRequest + " - Response format error";
+                }
             }
             else
             {
@@ -773,6 +892,1579 @@ bool AgentCoordinator::isRequestTimedOut(const PendingRequest& rRequest) const
 void AgentCoordinator::logActivity(const OUString& rsMessage) const
 {
     SAL_INFO("sw.ai", rsMessage);
+}
+
+// Enhanced JSON response parsing implementation (Phase 4)
+
+AgentCoordinator::ParsedResponse AgentCoordinator::parseEnhancedJsonResponse(const OUString& rsJsonResponse) const
+{
+    ParsedResponse aResult;
+    
+    try
+    {
+        // Convert OUString to std::string for boost property tree parsing
+        OString sJsonUtf8 = OUStringToOString(rsJsonResponse, RTL_TEXTENCODING_UTF8);
+        std::string sJsonStd(sJsonUtf8.getStr(), sJsonUtf8.getLength());
+        
+        // Parse JSON using boost property tree
+        boost::property_tree::ptree aTree;
+        std::istringstream aJsonStream(sJsonStd);
+        boost::property_tree::read_json(aJsonStream, aTree);
+        
+        // Extract basic response info
+        aResult.bSuccess = aTree.get<bool>("success", false);
+        aResult.sRequestId = OStringToOUString(OString(aTree.get<std::string>("request_id", "").c_str()), RTL_TEXTENCODING_UTF8);
+        
+        if (!aResult.bSuccess)
+        {
+            aResult.sErrorMessage = OStringToOUString(OString(aTree.get<std::string>("error_message", "Unknown error").c_str()), RTL_TEXTENCODING_UTF8);
+            return aResult;
+        }
+        
+        // Extract enhanced response fields
+        aResult.sResponseContent = OStringToOUString(OString(aTree.get<std::string>("response_content", "").c_str()), RTL_TEXTENCODING_UTF8);
+        
+        // Extract operations array
+        auto aOperationsOpt = aTree.get_child_optional("operations");
+        if (aOperationsOpt)
+        {
+            for (const auto& rOperation : aOperationsOpt.value())
+            {
+                aResult.aOperations.push_back(rOperation.second);
+            }
+        }
+        
+        // Extract operation summaries
+        auto aOperationSummariesOpt = aTree.get_child_optional("operation_summaries");
+        if (aOperationSummariesOpt)
+        {
+            for (const auto& rSummary : aOperationSummariesOpt.value())
+            {
+                OUString sSummary = OStringToOUString(OString(rSummary.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
+                aResult.aOperationSummaries.push_back(sSummary);
+            }
+        }
+        
+        // Extract content and formatting changes
+        auto aContentChangesOpt = aTree.get_child_optional("content_changes");
+        if (aContentChangesOpt)
+        {
+            aResult.aContentChanges = aContentChangesOpt.value();
+        }
+        
+        auto aFormattingChangesOpt = aTree.get_child_optional("formatting_changes");
+        if (aFormattingChangesOpt)
+        {
+            aResult.aFormattingChanges = aFormattingChangesOpt.value();
+        }
+        
+        // Extract warnings
+        auto aWarningsOpt = aTree.get_child_optional("warnings");
+        if (aWarningsOpt)
+        {
+            for (const auto& rWarning : aWarningsOpt.value())
+            {
+                OUString sWarning = OStringToOUString(OString(rWarning.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
+                aResult.aWarnings.push_back(sWarning);
+            }
+        }
+        
+        // Extract metadata
+        auto aMetadataOpt = aTree.get_child_optional("metadata");
+        if (aMetadataOpt)
+        {
+            aResult.aMetadata = aMetadataOpt.value();
+        }
+        
+        // Set success if we got this far
+        aResult.bSuccess = true;
+        
+        SAL_INFO("sw.ai", "Successfully parsed enhanced JSON response: " << 
+                 aResult.aOperations.size() << " operations, " << 
+                 aResult.aOperationSummaries.size() << " summaries, " << 
+                 aResult.aWarnings.size() << " warnings");
+        
+        return aResult;
+    }
+    catch (const boost::property_tree::json_parser_error& e)
+    {
+        aResult.bSuccess = false;
+        aResult.sErrorMessage = "JSON parsing error at line " + OUString::number(e.line()) + ": " + 
+                               OStringToOUString(OString(e.message().c_str()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "JSON parsing error: " << aResult.sErrorMessage);
+        return aResult;
+    }
+    catch (const boost::property_tree::ptree_error& e)
+    {
+        aResult.bSuccess = false;
+        aResult.sErrorMessage = "Property tree error: " + 
+                               OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Property tree error: " << aResult.sErrorMessage);
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.bSuccess = false;
+        aResult.sErrorMessage = "Unexpected error parsing JSON: " + 
+                               OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Unexpected JSON parsing error: " << aResult.sErrorMessage);
+        return aResult;
+    }
+}
+
+OUString AgentCoordinator::formatResponseForDisplay(const ParsedResponse& rParsed) const
+{
+    if (!rParsed.bSuccess)
+    {
+        return "Error: " + rParsed.sErrorMessage;
+    }
+    
+    OUString sDisplayText = rParsed.sResponseContent;
+    
+    // Add operation confirmations if operations exist
+    if (!rParsed.aOperations.empty())
+    {
+        if (!sDisplayText.isEmpty())
+        {
+            sDisplayText += "\n\n";
+        }
+        
+        if (rParsed.aOperations.size() == 1)
+        {
+            sDisplayText += "✓ 1 operation prepared for execution";
+        }
+        else
+        {
+            sDisplayText += "✓ " + OUString::number(rParsed.aOperations.size()) + " operations prepared for execution";
+        }
+        
+        // Add operation summaries if available
+        if (!rParsed.aOperationSummaries.empty())
+        {
+            sDisplayText += ":";
+            for (size_t i = 0; i < rParsed.aOperationSummaries.size() && i < 3; ++i)  // Limit to first 3 summaries
+            {
+                sDisplayText += "\n• " + rParsed.aOperationSummaries[i];
+            }
+            
+            if (rParsed.aOperationSummaries.size() > 3)
+            {
+                sDisplayText += "\n• ... and " + OUString::number(rParsed.aOperationSummaries.size() - 3) + " more";
+            }
+        }
+    }
+    
+    // Add warnings if any
+    if (!rParsed.aWarnings.empty())
+    {
+        if (!sDisplayText.isEmpty())
+        {
+            sDisplayText += "\n\n";
+        }
+        
+        sDisplayText += "⚠ Warnings:";
+        for (const auto& rsWarning : rParsed.aWarnings)
+        {
+            sDisplayText += "\n• " + rsWarning;
+        }
+    }
+    
+    // Fallback if no content available
+    if (sDisplayText.isEmpty())
+    {
+        sDisplayText = "Request processed successfully.";
+    }
+    
+    return sDisplayText;
+}
+
+bool AgentCoordinator::hasExecutableOperations(const ParsedResponse& rParsed) const
+{
+    return rParsed.bSuccess && !rParsed.aOperations.empty();
+}
+
+// Operation Translation Implementation (Phase 5)
+
+std::vector<AgentCoordinator::TranslatedOperation> AgentCoordinator::translateOperationsToUno(const ParsedResponse& rParsed) const
+{
+    std::vector<TranslatedOperation> aTranslated;
+    
+    if (!rParsed.bSuccess || rParsed.aOperations.empty())
+    {
+        SAL_INFO("sw.ai", "No operations to translate - success: " << rParsed.bSuccess << ", operations: " << rParsed.aOperations.size());
+        return aTranslated;
+    }
+    
+    SAL_INFO("sw.ai", "Translating " << rParsed.aOperations.size() << " operations to UNO format");
+    
+    for (size_t i = 0; i < rParsed.aOperations.size(); ++i)
+    {
+        const auto& rOperation = rParsed.aOperations[i];
+        
+        try
+        {
+            TranslatedOperation aTranslatedOp = translateSingleOperation(rOperation);
+            if (aTranslatedOp.bSuccess)
+            {
+                SAL_INFO("sw.ai", "Successfully translated operation " << (i+1) << ": " << aTranslatedOp.sOperationType);
+                aTranslated.push_back(aTranslatedOp);
+            }
+            else
+            {
+                SAL_WARN("sw.ai", "Failed to translate operation " << (i+1) << ": " << aTranslatedOp.sErrorMessage);
+                // Continue with other operations even if one fails
+            }
+        }
+        catch (const std::exception& e)
+        {
+            SAL_WARN("sw.ai", "Exception translating operation " << (i+1) << ": " << e.what());
+        }
+    }
+    
+    SAL_INFO("sw.ai", "Successfully translated " << aTranslated.size() << " out of " << rParsed.aOperations.size() << " operations");
+    return aTranslated;
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateSingleOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    
+    try
+    {
+        // Extract operation type
+        std::string sOperationType = rOperation.get<std::string>("type", "");
+        if (sOperationType.empty())
+        {
+            aResult.sErrorMessage = "Missing operation type";
+            return aResult;
+        }
+        
+        // Extract priority
+        aResult.nPriority = rOperation.get<sal_Int32>("priority", 1);
+        
+        SAL_INFO("sw.ai", "Translating operation type: " << sOperationType.c_str() << " (priority: " << aResult.nPriority << ")");
+        
+        // Route to specific translator based on operation type
+        if (sOperationType == "insert_text")
+        {
+            aResult = translateInsertTextOperation(rOperation);
+        }
+        else if (sOperationType == "apply_formatting" || sOperationType == "modify_text")
+        {
+            aResult = translateApplyFormattingOperation(rOperation);
+        }
+        else if (sOperationType == "create_table")
+        {
+            aResult = translateCreateTableOperation(rOperation);
+        }
+        else if (sOperationType == "create_chart")
+        {
+            aResult = translateCreateChartOperation(rOperation);
+        }
+        else if (sOperationType == "insert_image")
+        {
+            aResult = translateInsertImageOperation(rOperation);
+        }
+        else if (sOperationType == "apply_template")
+        {
+            aResult = translateApplyTemplateOperation(rOperation);
+        }
+        else if (sOperationType == "restructure_document")
+        {
+            aResult = translateRestructureDocumentOperation(rOperation);
+        }
+        else
+        {
+            aResult.sErrorMessage = "Unsupported operation type: " + OStringToOUString(OString(sOperationType.c_str()), RTL_TEXTENCODING_UTF8);
+            SAL_WARN("sw.ai", "Unsupported operation type: " << sOperationType.c_str());
+            return aResult;
+        }
+        
+        // Preserve priority from original operation
+        aResult.nPriority = rOperation.get<sal_Int32>("priority", aResult.nPriority);
+        
+        return aResult;
+    }
+    catch (const boost::property_tree::ptree_error& e)
+    {
+        aResult.sErrorMessage = "Property tree error: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Property tree error in operation translation: " << e.what());
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Unexpected error: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Unexpected error in operation translation: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateInsertTextOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "insertText";
+    
+    try
+    {
+        // Extract parameters from agent operation format
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for insert_text operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract text content
+        std::string sContent = rParams.get<std::string>("content", "");
+        if (sContent.empty())
+        {
+            aResult.sErrorMessage = "Missing content for insert_text operation";
+            return aResult;
+        }
+        
+        // Convert position parameter
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aPosition;
+        if (aTargetOpt)
+        {
+            auto aPositionOpt = aTargetOpt.value().get_child_optional("position");
+            if (aPositionOpt)
+            {
+                aPosition = convertPositionParameter(aPositionOpt.value());
+            }
+        }
+        
+        // Convert formatting parameters
+        css::uno::Sequence<css::beans::PropertyValue> aFormatting;
+        auto aFormattingOpt = rParams.get_child_optional("formatting");
+        if (aFormattingOpt)
+        {
+            aFormatting = convertFormattingParameters(aFormattingOpt.value());
+        }
+        
+        // Create UNO parameter sequence for DocumentOperations::insertText
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(3);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("Text", css::uno::Any(OStringToOUString(OString(sContent.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[1] = createPropertyValue("Position", aPosition);
+        pParams[2] = createPropertyValue("Formatting", css::uno::Any(aFormatting));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated insert_text operation - content length: " << sContent.length());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating insert_text operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating insert_text: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateApplyFormattingOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "formatText";
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for apply_formatting operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Convert target range
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aTextRange;
+        if (aTargetOpt)
+        {
+            auto aRangeOpt = aTargetOpt.value().get_child_optional("range");
+            if (aRangeOpt)
+            {
+                aTextRange = convertRangeParameter(aRangeOpt.value());
+            }
+        }
+        
+        // Convert formatting properties
+        css::uno::Sequence<css::beans::PropertyValue> aFormatting = convertFormattingParameters(rParams);
+        
+        // Create UNO parameter sequence for DocumentOperations::formatText
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(2);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("TextRange", aTextRange);
+        pParams[1] = createPropertyValue("Formatting", css::uno::Any(aFormatting));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated apply_formatting operation - formatting properties: " << aFormatting.getLength());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating apply_formatting operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating apply_formatting: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateCreateTableOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "createTable";
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for create_table operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract table dimensions
+        sal_Int32 nRows = rParams.get<sal_Int32>("rows", 1);
+        sal_Int32 nColumns = rParams.get<sal_Int32>("columns", 1);
+        
+        // Extract position
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aPosition;
+        if (aTargetOpt)
+        {
+            auto aPositionOpt = aTargetOpt.value().get_child_optional("position");
+            if (aPositionOpt)
+            {
+                aPosition = convertPositionParameter(aPositionOpt.value());
+            }
+        }
+        
+        // Extract table properties
+        css::uno::Sequence<css::beans::PropertyValue> aTableProperties;
+        auto aPropsOpt = rParams.get_child_optional("style");
+        if (aPropsOpt)
+        {
+            aTableProperties = convertFormattingParameters(aPropsOpt.value());
+        }
+        
+        // Create UNO parameter sequence for DocumentOperations::createTable
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(4);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("Rows", css::uno::Any(nRows));
+        pParams[1] = createPropertyValue("Columns", css::uno::Any(nColumns));
+        pParams[2] = createPropertyValue("Position", aPosition);
+        pParams[3] = createPropertyValue("TableProperties", css::uno::Any(aTableProperties));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated create_table operation - " << nRows << "x" << nColumns << " table");
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating create_table operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating create_table: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateCreateChartOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "insertChart";
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for create_chart operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract chart type
+        std::string sChartType = rParams.get<std::string>("chart_type", "line");
+        
+        // Extract data source
+        std::string sDataSource = rParams.get<std::string>("data_source", "");
+        
+        // Extract position
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aPosition;
+        if (aTargetOpt)
+        {
+            auto aPositionOpt = aTargetOpt.value().get_child_optional("position");
+            if (aPositionOpt)
+            {
+                aPosition = convertPositionParameter(aPositionOpt.value());
+            }
+        }
+        
+        // Extract chart properties
+        css::uno::Sequence<css::beans::PropertyValue> aChartProperties;
+        auto aStylingOpt = rParams.get_child_optional("styling");
+        if (aStylingOpt)
+        {
+            aChartProperties = convertFormattingParameters(aStylingOpt.value());
+        }
+        
+        // Create UNO parameter sequence for DocumentOperations::insertChart
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(4);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("ChartData", css::uno::Any(OStringToOUString(OString(sDataSource.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[1] = createPropertyValue("ChartType", css::uno::Any(OStringToOUString(OString(sChartType.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[2] = createPropertyValue("Position", aPosition);
+        pParams[3] = createPropertyValue("ChartProperties", css::uno::Any(aChartProperties));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated create_chart operation - type: " << sChartType.c_str());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating create_chart operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating create_chart: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateInsertImageOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "insertGraphic";
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for insert_image operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract image source
+        std::string sSource = rParams.get<std::string>("source", "");
+        if (sSource.empty())
+        {
+            aResult.sErrorMessage = "Missing source for insert_image operation";
+            return aResult;
+        }
+        
+        // Extract position
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aPosition;
+        if (aTargetOpt)
+        {
+            auto aPositionOpt = aTargetOpt.value().get_child_optional("position");
+            if (aPositionOpt)
+            {
+                aPosition = convertPositionParameter(aPositionOpt.value());
+            }
+        }
+        
+        // Extract graphic properties (size, caption, etc.)
+        css::uno::Sequence<css::beans::PropertyValue> aGraphicProperties;
+        auto aSizeOpt = rParams.get_child_optional("size");
+        auto aCaptionOpt = rParams.get_child_optional("caption");
+        
+        std::vector<css::beans::PropertyValue> aProps;
+        if (aSizeOpt)
+        {
+            // Convert size properties
+            aProps.push_back(createPropertyValue("Width", css::uno::Any(OStringToOUString(
+                OString(aSizeOpt.value().get<std::string>("width", "").c_str()), RTL_TEXTENCODING_UTF8))));
+            aProps.push_back(createPropertyValue("Height", css::uno::Any(OStringToOUString(
+                OString(aSizeOpt.value().get<std::string>("height", "").c_str()), RTL_TEXTENCODING_UTF8))));
+        }
+        if (aCaptionOpt)
+        {
+            aProps.push_back(createPropertyValue("Caption", css::uno::Any(OStringToOUString(
+                OString(aCaptionOpt.value().get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8))));
+        }
+        
+        aGraphicProperties = css::uno::Sequence<css::beans::PropertyValue>(aProps.data(), aProps.size());
+        
+        // Create UNO parameter sequence for DocumentOperations::insertGraphic
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(3);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("GraphicData", css::uno::Any(OStringToOUString(OString(sSource.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[1] = createPropertyValue("Position", aPosition);
+        pParams[2] = createPropertyValue("GraphicProperties", css::uno::Any(aGraphicProperties));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated insert_image operation - source: " << sSource.c_str());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating insert_image operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating insert_image: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateApplyTemplateOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "applyStyle";
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for apply_template operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract template ID/name
+        std::string sTemplateId = rParams.get<std::string>("template_id", "");
+        if (sTemplateId.empty())
+        {
+            aResult.sErrorMessage = "Missing template_id for apply_template operation";
+            return aResult;
+        }
+        
+        // Extract target (could be whole document or specific range)
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aTarget;
+        if (aTargetOpt)
+        {
+            // For now, use the whole document as target
+            aTarget = css::uno::Any(OUString("document"));
+        }
+        
+        // Extract placeholder data
+        css::uno::Sequence<css::beans::PropertyValue> aStyleProperties;
+        auto aPlaceholderOpt = rParams.get_child_optional("placeholder_data");
+        if (aPlaceholderOpt)
+        {
+            aStyleProperties = convertFormattingParameters(aPlaceholderOpt.value());
+        }
+        
+        // Create UNO parameter sequence for DocumentOperations::applyStyle
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(3);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("Target", aTarget);
+        pParams[1] = createPropertyValue("StyleName", css::uno::Any(OStringToOUString(OString(sTemplateId.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[2] = createPropertyValue("StyleProperties", css::uno::Any(aStyleProperties));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated apply_template operation - template: " << sTemplateId.c_str());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating apply_template operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating apply_template: " << e.what());
+        return aResult;
+    }
+}
+
+AgentCoordinator::TranslatedOperation AgentCoordinator::translateRestructureDocumentOperation(const boost::property_tree::ptree& rOperation) const
+{
+    TranslatedOperation aResult;
+    aResult.sOperationType = "createSection";  // Use createSection as the primary restructuring operation
+    
+    try
+    {
+        // Extract parameters
+        auto aParametersOpt = rOperation.get_child_optional("parameters");
+        if (!aParametersOpt)
+        {
+            aResult.sErrorMessage = "Missing parameters for restructure_document operation";
+            return aResult;
+        }
+        
+        const auto& rParams = aParametersOpt.value();
+        
+        // Extract section information
+        std::string sSectionName = rParams.get<std::string>("section_name", "NewSection");
+        
+        // Extract position
+        auto aTargetOpt = rOperation.get_child_optional("target");
+        css::uno::Any aPosition;
+        if (aTargetOpt)
+        {
+            auto aPositionOpt = aTargetOpt.value().get_child_optional("position");
+            if (aPositionOpt)
+            {
+                aPosition = convertPositionParameter(aPositionOpt.value());
+            }
+        }
+        
+        // Extract section properties
+        css::uno::Sequence<css::beans::PropertyValue> aSectionProperties;
+        auto aSectionsOpt = rParams.get_child_optional("sections");
+        if (aSectionsOpt)
+        {
+            aSectionProperties = convertFormattingParameters(aSectionsOpt.value());
+        }
+        
+        // Create UNO parameter sequence for DocumentOperations::createSection
+        aResult.aParameters = css::uno::Sequence<css::beans::PropertyValue>(3);
+        auto pParams = aResult.aParameters.getArray();
+        
+        pParams[0] = createPropertyValue("SectionName", css::uno::Any(OStringToOUString(OString(sSectionName.c_str()), RTL_TEXTENCODING_UTF8)));
+        pParams[1] = createPropertyValue("Position", aPosition);
+        pParams[2] = createPropertyValue("SectionProperties", css::uno::Any(aSectionProperties));
+        
+        aResult.bSuccess = true;
+        SAL_INFO("sw.ai", "Translated restructure_document operation - section: " << sSectionName.c_str());
+        
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Error translating restructure_document operation: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Error translating restructure_document: " << e.what());
+        return aResult;
+    }
+}
+
+// Helper methods for parameter conversion
+
+css::uno::Any AgentCoordinator::convertPositionParameter(const boost::property_tree::ptree& rPosition) const
+{
+    try
+    {
+        // Create a PropertyValue sequence for position data
+        std::vector<css::beans::PropertyValue> aPositionProps;
+        
+        // Extract line/paragraph position
+        auto nLine = rPosition.get<sal_Int32>("line", -1);
+        if (nLine >= 0)
+        {
+            aPositionProps.push_back(createPropertyValue("Line", css::uno::Any(nLine)));
+        }
+        
+        // Extract column position
+        auto nColumn = rPosition.get<sal_Int32>("column", -1);
+        if (nColumn >= 0)
+        {
+            aPositionProps.push_back(createPropertyValue("Column", css::uno::Any(nColumn)));
+        }
+        
+        // Extract paragraph position
+        auto nParagraph = rPosition.get<sal_Int32>("paragraph", -1);
+        if (nParagraph >= 0)
+        {
+            aPositionProps.push_back(createPropertyValue("Paragraph", css::uno::Any(nParagraph)));
+        }
+        
+        // Convert special position strings
+        std::string sPosition = rPosition.get_value<std::string>();
+        if (!sPosition.empty())
+        {
+            if (sPosition == "current_cursor" || sPosition == "cursor")
+            {
+                aPositionProps.push_back(createPropertyValue("PositionType", css::uno::Any(OUString("current_cursor"))));
+            }
+            else if (sPosition == "document_start")
+            {
+                aPositionProps.push_back(createPropertyValue("PositionType", css::uno::Any(OUString("document_start"))));
+            }
+            else if (sPosition == "document_end")
+            {
+                aPositionProps.push_back(createPropertyValue("PositionType", css::uno::Any(OUString("document_end"))));
+            }
+            else if (sPosition == "after_table")
+            {
+                aPositionProps.push_back(createPropertyValue("PositionType", css::uno::Any(OUString("after_table"))));
+            }
+        }
+        
+        css::uno::Sequence<css::beans::PropertyValue> aPositionSeq(aPositionProps.data(), aPositionProps.size());
+        return css::uno::Any(aPositionSeq);
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error converting position parameter: " << e.what());
+        // Return empty position - will use current cursor position
+        return css::uno::Any();
+    }
+}
+
+css::uno::Any AgentCoordinator::convertRangeParameter(const boost::property_tree::ptree& rRange) const
+{
+    try
+    {
+        // Create a PropertyValue sequence for range data
+        std::vector<css::beans::PropertyValue> aRangeProps;
+        
+        // Extract start position
+        auto aStartOpt = rRange.get_child_optional("start");
+        if (aStartOpt)
+        {
+            auto aStartPos = convertPositionParameter(aStartOpt.value());
+            aRangeProps.push_back(createPropertyValue("Start", aStartPos));
+        }
+        
+        // Extract end position
+        auto aEndOpt = rRange.get_child_optional("end");
+        if (aEndOpt)
+        {
+            auto aEndPos = convertPositionParameter(aEndOpt.value());
+            aRangeProps.push_back(createPropertyValue("End", aEndPos));
+        }
+        
+        // Extract range type (selection, paragraph, etc.)
+        std::string sRangeType = rRange.get<std::string>("type", "selection");
+        aRangeProps.push_back(createPropertyValue("RangeType", css::uno::Any(OStringToOUString(OString(sRangeType.c_str()), RTL_TEXTENCODING_UTF8))));
+        
+        css::uno::Sequence<css::beans::PropertyValue> aRangeSeq(aRangeProps.data(), aRangeProps.size());
+        return css::uno::Any(aRangeSeq);
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error converting range parameter: " << e.what());
+        // Return empty range - will use current selection
+        return css::uno::Any();
+    }
+}
+
+css::uno::Sequence<css::beans::PropertyValue> AgentCoordinator::convertFormattingParameters(const boost::property_tree::ptree& rFormatting) const
+{
+    try
+    {
+        std::vector<css::beans::PropertyValue> aFormattingProps;
+        
+        // Character formatting properties
+        auto bBold = rFormatting.get<bool>("bold", false);
+        if (bBold)
+        {
+            aFormattingProps.push_back(createPropertyValue("CharWeight", css::uno::Any(static_cast<float>(css::awt::FontWeight::BOLD))));
+        }
+        
+        auto bItalic = rFormatting.get<bool>("italic", false);
+        if (bItalic)
+        {
+            aFormattingProps.push_back(createPropertyValue("CharPosture", css::uno::Any(static_cast<sal_Int16>(css::awt::FontSlant_ITALIC))));
+        }
+        
+        auto bUnderline = rFormatting.get<bool>("underline", false);
+        if (bUnderline)
+        {
+            aFormattingProps.push_back(createPropertyValue("CharUnderline", css::uno::Any(static_cast<sal_Int16>(css::awt::FontUnderline::SINGLE))));
+        }
+        
+        // Font properties
+        std::string sFontFamily = rFormatting.get<std::string>("font_family", "");
+        if (!sFontFamily.empty())
+        {
+            aFormattingProps.push_back(createPropertyValue("CharFontName", css::uno::Any(OStringToOUString(OString(sFontFamily.c_str()), RTL_TEXTENCODING_UTF8))));
+        }
+        
+        auto fFontSize = rFormatting.get<float>("font_size", 0.0f);
+        if (fFontSize > 0.0f)
+        {
+            aFormattingProps.push_back(createPropertyValue("CharHeight", css::uno::Any(fFontSize)));
+        }
+        
+        // Color properties
+        std::string sColor = rFormatting.get<std::string>("color", "");
+        if (!sColor.empty())
+        {
+            // Convert color string to color value (simplified - would need full color parsing in production)
+            sal_Int32 nColor = 0x000000; // Default to black
+            if (sColor == "red") nColor = 0xFF0000;
+            else if (sColor == "blue") nColor = 0x0000FF;
+            else if (sColor == "green") nColor = 0x00FF00;
+            
+            aFormattingProps.push_back(createPropertyValue("CharColor", css::uno::Any(nColor)));
+        }
+        
+        // Paragraph formatting
+        std::string sAlignment = rFormatting.get<std::string>("alignment", "");
+        if (!sAlignment.empty())
+        {
+            sal_Int16 nAlignment = static_cast<sal_Int16>(css::style::ParagraphAdjust_LEFT);
+            if (sAlignment == "center") nAlignment = static_cast<sal_Int16>(css::style::ParagraphAdjust_CENTER);
+            else if (sAlignment == "right") nAlignment = static_cast<sal_Int16>(css::style::ParagraphAdjust_RIGHT);
+            else if (sAlignment == "justify") nAlignment = static_cast<sal_Int16>(css::style::ParagraphAdjust_BLOCK);
+            
+            aFormattingProps.push_back(createPropertyValue("ParaAdjust", css::uno::Any(nAlignment)));
+        }
+        
+        // Style name
+        std::string sStyle = rFormatting.get<std::string>("style", "");
+        if (!sStyle.empty())
+        {
+            aFormattingProps.push_back(createPropertyValue("ParaStyleName", css::uno::Any(OStringToOUString(OString(sStyle.c_str()), RTL_TEXTENCODING_UTF8))));
+        }
+        
+        return css::uno::Sequence<css::beans::PropertyValue>(aFormattingProps.data(), aFormattingProps.size());
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error converting formatting parameters: " << e.what());
+        return css::uno::Sequence<css::beans::PropertyValue>();
+    }
+}
+
+css::beans::PropertyValue AgentCoordinator::createPropertyValue(const OUString& rsName, const css::uno::Any& rValue) const
+{
+    css::beans::PropertyValue aProp;
+    aProp.Name = rsName;
+    aProp.Value = rValue;
+    return aProp;
+}
+
+// Operation Execution Bridge Implementation (Phase 6)
+
+std::vector<AgentCoordinator::ExecutionResult> AgentCoordinator::executeTranslatedOperations(const std::vector<TranslatedOperation>& rOperations) const
+{
+    std::vector<ExecutionResult> aResults;
+    
+    if (rOperations.empty())
+    {
+        SAL_INFO("sw.ai", "No operations to execute");
+        return aResults;
+    }
+    
+    // Initialize DocumentOperations service if needed
+    if (!m_xDocumentOperations)
+    {
+        const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
+        if (!m_xDocumentOperations)
+        {
+            SAL_WARN("sw.ai", "Failed to initialize DocumentOperations service");
+            ExecutionResult aError;
+            aError.sErrorMessage = "DocumentOperations service not available";
+            aResults.push_back(aError);
+            return aResults;
+        }
+    }
+    
+    // Sort operations by priority (per AGENT_SYSTEM_SPECIFICATION.md: priority 1-100)
+    std::vector<TranslatedOperation> aSortedOperations = rOperations;
+    sortOperationsByPriority(aSortedOperations);
+    
+    SAL_INFO("sw.ai", "Executing " << aSortedOperations.size() << " operations in priority order");
+    
+    auto aStartTime = std::chrono::steady_clock::now();
+    
+    // Execute each operation in order
+    for (size_t i = 0; i < aSortedOperations.size(); ++i)
+    {
+        const auto& rOperation = aSortedOperations[i];
+        
+        SAL_INFO("sw.ai", "Executing operation " << (i+1) << "/" << aSortedOperations.size() << 
+                 ": " << rOperation.sOperationType << " (priority: " << rOperation.nPriority << ")");
+        
+        try
+        {
+            ExecutionResult aResult = executeSingleOperation(rOperation);
+            aResult.sOperationType = rOperation.sOperationType;
+            aResult.nPriority = rOperation.nPriority;
+            
+            if (aResult.bSuccess)
+            {
+                SAL_INFO("sw.ai", "Operation " << (i+1) << " completed successfully: " << aResult.sOperationId);
+            }
+            else
+            {
+                SAL_WARN("sw.ai", "Operation " << (i+1) << " failed: " << aResult.sErrorMessage);
+            }
+            
+            aResults.push_back(aResult);
+        }
+        catch (const css::uno::Exception& e)
+        {
+            ExecutionResult aError;
+            aError.sOperationType = rOperation.sOperationType;
+            aError.nPriority = rOperation.nPriority;
+            aError.sErrorMessage = "UNO Exception: " + e.Message;
+            aResults.push_back(aError);
+            
+            SAL_WARN("sw.ai", "UNO Exception executing operation " << (i+1) << ": " << e.Message);
+        }
+        catch (const std::exception& e)
+        {
+            ExecutionResult aError;
+            aError.sOperationType = rOperation.sOperationType;
+            aError.nPriority = rOperation.nPriority;
+            aError.sErrorMessage = "Exception: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+            aResults.push_back(aError);
+            
+            SAL_WARN("sw.ai", "Exception executing operation " << (i+1) << ": " << e.what());
+        }
+    }
+    
+    auto aEndTime = std::chrono::steady_clock::now();
+    auto aTotalTime = std::chrono::duration_cast<std::chrono::milliseconds>(aEndTime - aStartTime);
+    
+    size_t nSuccessful = std::count_if(aResults.begin(), aResults.end(), [](const ExecutionResult& r) { return r.bSuccess; });
+    
+    SAL_INFO("sw.ai", "Operation execution completed: " << nSuccessful << "/" << aResults.size() << 
+             " successful in " << aTotalTime.count() << "ms");
+    
+    return aResults;
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeSingleOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    auto aStartTime = std::chrono::steady_clock::now();
+    
+    try
+    {
+        if (!rOperation.bSuccess)
+        {
+            aResult.sErrorMessage = "Operation translation failed: " + rOperation.sErrorMessage;
+            return aResult;
+        }
+        
+        // Route to specific execution method based on operation type
+        if (rOperation.sOperationType == "insertText")
+        {
+            aResult = executeInsertTextOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "formatText")
+        {
+            aResult = executeFormatTextOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "createTable")
+        {
+            aResult = executeCreateTableOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "insertChart")
+        {
+            aResult = executeInsertChartOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "insertGraphic")
+        {
+            aResult = executeInsertGraphicOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "applyStyle")
+        {
+            aResult = executeApplyStyleOperation(rOperation);
+        }
+        else if (rOperation.sOperationType == "createSection")
+        {
+            aResult = executeCreateSectionOperation(rOperation);
+        }
+        else
+        {
+            aResult.sErrorMessage = "Unsupported operation type: " + rOperation.sOperationType;
+            SAL_WARN("sw.ai", "Unsupported operation type for execution: " << rOperation.sOperationType);
+            return aResult;
+        }
+        
+        auto aEndTime = std::chrono::steady_clock::now();
+        aResult.fExecutionTimeMs = std::chrono::duration_cast<std::chrono::microseconds>(aEndTime - aStartTime).count() / 1000.0;
+        
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in single operation execution: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeSingleOperation: " << e.Message);
+        return aResult;
+    }
+    catch (const std::exception& e)
+    {
+        aResult.sErrorMessage = "Exception in single operation execution: " + OStringToOUString(OString(e.what()), RTL_TEXTENCODING_UTF8);
+        SAL_WARN("sw.ai", "Exception in executeSingleOperation: " << e.what());
+        return aResult;
+    }
+}
+
+bool AgentCoordinator::initializeDocumentOperationsService()
+{
+    try
+    {
+        if (m_xDocumentOperations.is())
+        {
+            return true; // Already initialized
+        }
+        
+        if (!m_xContext.is())
+        {
+            SAL_WARN("sw.ai", "No component context available for DocumentOperations service");
+            return false;
+        }
+        
+        // Create DocumentOperations service using UNO service manager
+        css::uno::Reference<css::lang::XMultiComponentFactory> xServiceManager = m_xContext->getServiceManager();
+        if (!xServiceManager.is())
+        {
+            SAL_WARN("sw.ai", "No service manager available");
+            return false;
+        }
+        
+        // Create the DocumentOperations service
+        css::uno::Reference<css::uno::XInterface> xService = xServiceManager->createInstanceWithContext(
+            "com.sun.star.ai.DocumentOperations", m_xContext);
+        
+        if (!xService.is())
+        {
+            SAL_WARN("sw.ai", "Failed to create DocumentOperations service instance");
+            return false;
+        }
+        
+        // Query for XAIDocumentOperations interface
+        m_xDocumentOperations.set(xService, css::uno::UNO_QUERY);
+        if (!m_xDocumentOperations.is())
+        {
+            SAL_WARN("sw.ai", "Failed to query XAIDocumentOperations interface");
+            return false;
+        }
+        
+        SAL_INFO("sw.ai", "DocumentOperations service initialized successfully");
+        return true;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        SAL_WARN("sw.ai", "UNO Exception initializing DocumentOperations: " << e.Message);
+        return false;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Exception initializing DocumentOperations: " << e.what());
+        return false;
+    }
+}
+
+css::uno::Reference<css::ai::XAIDocumentOperations> AgentCoordinator::getDocumentOperationsService() const
+{
+    if (!m_xDocumentOperations.is())
+    {
+        const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
+    }
+    return m_xDocumentOperations;
+}
+
+// Specific operation execution methods
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertTextOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for insertText";
+            return aResult;
+        }
+        
+        // Extract parameters (text, position, formatting)
+        OUString sText;
+        css::uno::Any aPosition;
+        css::uno::Sequence<css::beans::PropertyValue> aFormatting;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "Text")
+            {
+                rParam.Value >>= sText;
+            }
+            else if (rParam.Name == "Position")
+            {
+                aPosition = rParam.Value;
+            }
+            else if (rParam.Name == "Formatting")
+            {
+                rParam.Value >>= aFormatting;
+            }
+        }
+        
+        // Execute insertText operation via DocumentOperations
+        OUString sOperationId = xDocOps->insertText(sText, aPosition, aFormatting);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "insertText executed successfully - ID: " << sOperationId);
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in insertText: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeInsertTextOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeFormatTextOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for formatText";
+            return aResult;
+        }
+        
+        // Extract parameters (textRange, formatting)
+        css::uno::Any aTextRange;
+        css::uno::Sequence<css::beans::PropertyValue> aFormatting;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "TextRange")
+            {
+                aTextRange = rParam.Value;
+            }
+            else if (rParam.Name == "Formatting")
+            {
+                rParam.Value >>= aFormatting;
+            }
+        }
+        
+        // Execute formatText operation via DocumentOperations
+        OUString sOperationId = xDocOps->formatText(aTextRange, aFormatting);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "formatText executed successfully - ID: " << sOperationId);
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in formatText: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeFormatTextOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeCreateTableOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for createTable";
+            return aResult;
+        }
+        
+        // Extract parameters (rows, columns, position, tableProperties)
+        sal_Int32 nRows = 1;
+        sal_Int32 nColumns = 1;
+        css::uno::Any aPosition;
+        css::uno::Sequence<css::beans::PropertyValue> aTableProperties;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "Rows")
+            {
+                rParam.Value >>= nRows;
+            }
+            else if (rParam.Name == "Columns")
+            {
+                rParam.Value >>= nColumns;
+            }
+            else if (rParam.Name == "Position")
+            {
+                aPosition = rParam.Value;
+            }
+            else if (rParam.Name == "TableProperties")
+            {
+                rParam.Value >>= aTableProperties;
+            }
+        }
+        
+        // Execute createTable operation via DocumentOperations
+        OUString sOperationId = xDocOps->createTable(nRows, nColumns, aPosition, aTableProperties);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "createTable executed successfully - ID: " << sOperationId << " (" << nRows << "x" << nColumns << ")");
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in createTable: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeCreateTableOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertChartOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for insertChart";
+            return aResult;
+        }
+        
+        // Extract parameters (chartData, chartType, position, chartProperties)
+        css::uno::Any aChartData;
+        OUString sChartType;
+        css::uno::Any aPosition;
+        css::uno::Sequence<css::beans::PropertyValue> aChartProperties;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "ChartData")
+            {
+                aChartData = rParam.Value;
+            }
+            else if (rParam.Name == "ChartType")
+            {
+                rParam.Value >>= sChartType;
+            }
+            else if (rParam.Name == "Position")
+            {
+                aPosition = rParam.Value;
+            }
+            else if (rParam.Name == "ChartProperties")
+            {
+                rParam.Value >>= aChartProperties;
+            }
+        }
+        
+        // Execute insertChart operation via DocumentOperations
+        OUString sOperationId = xDocOps->insertChart(aChartData, sChartType, aPosition, aChartProperties);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "insertChart executed successfully - ID: " << sOperationId << " (type: " << sChartType << ")");
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in insertChart: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeInsertChartOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertGraphicOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for insertGraphic";
+            return aResult;
+        }
+        
+        // Extract parameters (graphicData, position, graphicProperties)
+        css::uno::Any aGraphicData;
+        css::uno::Any aPosition;
+        css::uno::Sequence<css::beans::PropertyValue> aGraphicProperties;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "GraphicData")
+            {
+                aGraphicData = rParam.Value;
+            }
+            else if (rParam.Name == "Position")
+            {
+                aPosition = rParam.Value;
+            }
+            else if (rParam.Name == "GraphicProperties")
+            {
+                rParam.Value >>= aGraphicProperties;
+            }
+        }
+        
+        // Execute insertGraphic operation via DocumentOperations
+        OUString sOperationId = xDocOps->insertGraphic(aGraphicData, aPosition, aGraphicProperties);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "insertGraphic executed successfully - ID: " << sOperationId);
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in insertGraphic: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeInsertGraphicOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeApplyStyleOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for applyStyle";
+            return aResult;
+        }
+        
+        // Extract parameters (target, styleName, styleProperties)
+        css::uno::Any aTarget;
+        OUString sStyleName;
+        css::uno::Sequence<css::beans::PropertyValue> aStyleProperties;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "Target")
+            {
+                aTarget = rParam.Value;
+            }
+            else if (rParam.Name == "StyleName")
+            {
+                rParam.Value >>= sStyleName;
+            }
+            else if (rParam.Name == "StyleProperties")
+            {
+                rParam.Value >>= aStyleProperties;
+            }
+        }
+        
+        // Execute applyStyle operation via DocumentOperations
+        OUString sOperationId = xDocOps->applyStyle(aTarget, sStyleName, aStyleProperties);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "applyStyle executed successfully - ID: " << sOperationId << " (style: " << sStyleName << ")");
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in applyStyle: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeApplyStyleOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+AgentCoordinator::ExecutionResult AgentCoordinator::executeCreateSectionOperation(const TranslatedOperation& rOperation) const
+{
+    ExecutionResult aResult;
+    
+    try
+    {
+        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
+        if (!xDocOps.is())
+        {
+            aResult.sErrorMessage = "DocumentOperations service not available for createSection";
+            return aResult;
+        }
+        
+        // Extract parameters (sectionName, position, sectionProperties)
+        OUString sSectionName;
+        css::uno::Any aPosition;
+        css::uno::Sequence<css::beans::PropertyValue> aSectionProperties;
+        
+        for (const auto& rParam : rOperation.aParameters)
+        {
+            if (rParam.Name == "SectionName")
+            {
+                rParam.Value >>= sSectionName;
+            }
+            else if (rParam.Name == "Position")
+            {
+                aPosition = rParam.Value;
+            }
+            else if (rParam.Name == "SectionProperties")
+            {
+                rParam.Value >>= aSectionProperties;
+            }
+        }
+        
+        // Execute createSection operation via DocumentOperations
+        OUString sOperationId = xDocOps->createSection(sSectionName, aPosition, aSectionProperties);
+        
+        aResult.bSuccess = true;
+        aResult.sOperationId = sOperationId;
+        
+        SAL_INFO("sw.ai", "createSection executed successfully - ID: " << sOperationId << " (section: " << sSectionName << ")");
+        return aResult;
+    }
+    catch (const css::uno::Exception& e)
+    {
+        aResult.sErrorMessage = "UNO Exception in createSection: " + e.Message;
+        SAL_WARN("sw.ai", "UNO Exception in executeCreateSectionOperation: " << e.Message);
+        return aResult;
+    }
+}
+
+// Execution utility methods
+
+void AgentCoordinator::sortOperationsByPriority(std::vector<TranslatedOperation>& rOperations) const
+{
+    // Sort operations by priority (1-100 per AGENT_SYSTEM_SPECIFICATION.md)
+    // Lower numbers = higher priority (execute first)
+    std::sort(rOperations.begin(), rOperations.end(), 
+        [](const TranslatedOperation& a, const TranslatedOperation& b) {
+            return a.nPriority < b.nPriority;
+        });
+}
+
+OUString AgentCoordinator::formatExecutionSummary(const std::vector<ExecutionResult>& rResults) const
+{
+    if (rResults.empty())
+    {
+        return "No operations executed";
+    }
+    
+    size_t nSuccessful = std::count_if(rResults.begin(), rResults.end(), [](const ExecutionResult& r) { return r.bSuccess; });
+    size_t nFailed = rResults.size() - nSuccessful;
+    
+    double fTotalTime = 0.0;
+    for (const auto& rResult : rResults)
+    {
+        fTotalTime += rResult.fExecutionTimeMs;
+    }
+    
+    OUString sSummary = "Executed " + OUString::number(rResults.size()) + " operations: " +
+                       OUString::number(nSuccessful) + " successful";
+    
+    if (nFailed > 0)
+    {
+        sSummary += ", " + OUString::number(nFailed) + " failed";
+    }
+    
+    sSummary += " (total: " + OUString::number(static_cast<sal_Int32>(fTotalTime)) + "ms)";
+    
+    return sSummary;
 }
 
 // WebSocket communication management methods

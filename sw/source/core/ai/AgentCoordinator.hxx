@@ -13,6 +13,7 @@
 
 #include <cppuhelper/implbase.hxx>
 #include <com/sun/star/ai/XAIAgentCoordinator.hpp>
+#include <com/sun/star/ai/XAIDocumentOperations.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/lang/IllegalArgumentException.hpp>
 #include <com/sun/star/uno/XComponentContext.hpp>
@@ -25,6 +26,17 @@
 #include <queue>
 #include <string>
 #include <chrono>
+
+// JSON parsing for enhanced API response format
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <sstream>
+
+// LibreOffice formatting constants for operation translation
+#include <com/sun/star/awt/FontWeight.hpp>
+#include <com/sun/star/awt/FontSlant.hpp>
+#include <com/sun/star/awt/FontUnderline.hpp>
+#include <com/sun/star/style/ParagraphAdjust.hpp>
 
 // Forward declarations for scalability
 namespace sw::ai {
@@ -107,6 +119,9 @@ private:
     bool m_bEnableWebSocket;
     bool m_bEnableOfflineMode;
     
+    // DocumentOperations service reference for operation execution (Phase 6)
+    mutable css::uno::Reference<css::ai::XAIDocumentOperations> m_xDocumentOperations;
+    
 public:
     explicit AgentCoordinator(const css::uno::Reference<css::uno::XComponentContext>& xContext);
     virtual ~AgentCoordinator() override;
@@ -169,6 +184,97 @@ private:
     bool initializeNetworkClient();
     bool sendToBackend(const OUString& rsMessage, const css::uno::Any& rContext);
     OUString receiveFromBackend(const OUString& rsRequestId);
+    
+    /**
+     * Enhanced JSON response parsing (Phase 4)
+     * Parse backend JSON response to extract operations and content separately
+     */
+    struct ParsedResponse {
+        bool bSuccess;
+        OUString sRequestId;
+        OUString sResponseContent;  // Chat response for user display
+        std::vector<boost::property_tree::ptree> aOperations;  // Operations to execute
+        std::vector<OUString> aOperationSummaries;  // Human-readable operation descriptions
+        boost::property_tree::ptree aContentChanges;  // Document content modifications
+        boost::property_tree::ptree aFormattingChanges;  // Formatting state changes
+        std::vector<OUString> aWarnings;  // Validation warnings
+        boost::property_tree::ptree aMetadata;  // Additional metadata
+        OUString sErrorMessage;  // Error message if parsing failed
+        
+        ParsedResponse() : bSuccess(false) {}
+    };
+    
+    ParsedResponse parseEnhancedJsonResponse(const OUString& rsJsonResponse) const;
+    OUString formatResponseForDisplay(const ParsedResponse& rParsed) const;
+    bool hasExecutableOperations(const ParsedResponse& rParsed) const;
+    
+    /**
+     * Operation Translation (Phase 5)
+     * Convert agent operation format to UNO PropertyValue sequences for DocumentOperations
+     */
+    struct TranslatedOperation {
+        OUString sOperationType;  // DocumentOperations method name
+        css::uno::Sequence<css::beans::PropertyValue> aParameters;  // UNO parameters
+        sal_Int32 nPriority;  // Execution order
+        bool bSuccess;  // Translation success
+        OUString sErrorMessage;  // Error if translation failed
+        
+        TranslatedOperation() : nPriority(1), bSuccess(false) {}
+    };
+    
+    std::vector<TranslatedOperation> translateOperationsToUno(const ParsedResponse& rParsed) const;
+    TranslatedOperation translateSingleOperation(const boost::property_tree::ptree& rOperation) const;
+    
+    // Specific operation translators for different operation types
+    TranslatedOperation translateInsertTextOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateApplyFormattingOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateCreateTableOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateCreateChartOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateInsertImageOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateApplyTemplateOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateModifyTextOperation(const boost::property_tree::ptree& rOperation) const;
+    TranslatedOperation translateRestructureDocumentOperation(const boost::property_tree::ptree& rOperation) const;
+    
+    // Helper methods for parameter conversion
+    css::uno::Any convertPositionParameter(const boost::property_tree::ptree& rPosition) const;
+    css::uno::Any convertRangeParameter(const boost::property_tree::ptree& rRange) const;
+    css::uno::Sequence<css::beans::PropertyValue> convertFormattingParameters(const boost::property_tree::ptree& rFormatting) const;
+    css::beans::PropertyValue createPropertyValue(const OUString& rsName, const css::uno::Any& rValue) const;
+    
+    /**
+     * Operation Execution Bridge (Phase 6)
+     * Execute translated operations via DocumentOperations service in correct order
+     */
+    struct ExecutionResult {
+        bool bSuccess;
+        OUString sOperationId;  // Returned from DocumentOperations
+        OUString sOperationType;
+        sal_Int32 nPriority;
+        OUString sErrorMessage;
+        double fExecutionTimeMs;
+        
+        ExecutionResult() : bSuccess(false), nPriority(0), fExecutionTimeMs(0.0) {}
+    };
+    
+    std::vector<ExecutionResult> executeTranslatedOperations(const std::vector<TranslatedOperation>& rOperations) const;
+    ExecutionResult executeSingleOperation(const TranslatedOperation& rOperation) const;
+    
+    // DocumentOperations service access
+    css::uno::Reference<css::ai::XAIDocumentOperations> getDocumentOperationsService() const;
+    bool initializeDocumentOperationsService();
+    
+    // Operation execution methods for specific operation types
+    ExecutionResult executeInsertTextOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeFormatTextOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeCreateTableOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeInsertChartOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeInsertGraphicOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeApplyStyleOperation(const TranslatedOperation& rOperation) const;
+    ExecutionResult executeCreateSectionOperation(const TranslatedOperation& rOperation) const;
+    
+    // Execution utilities
+    OUString formatExecutionSummary(const std::vector<ExecutionResult>& rResults) const;
+    void sortOperationsByPriority(std::vector<TranslatedOperation>& rOperations) const;
     
     /**
      * WebSocket communication management (Phase 3)

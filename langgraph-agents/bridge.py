@@ -999,11 +999,11 @@ class LangGraphBridge:
     
     async def _map_document_structure(self, context_dict: Dict[str, Any], 
                                     document_state: DocumentState):
-        """Map document structure information to DocumentState."""
+        """Map document structure information to DocumentState with enhanced LibreOffice data extraction."""
         try:
             document_structure = {}
             
-            # Extract basic document structure
+            # Extract basic document structure counts
             if "paragraph_count" in context_dict:
                 document_structure["paragraphs"] = context_dict["paragraph_count"]
             if "section_count" in context_dict:
@@ -1015,7 +1015,7 @@ class LangGraphBridge:
             if "chart_count" in context_dict:
                 document_structure["charts"] = context_dict["chart_count"]
             
-            # Extract detailed structure if available
+            # Extract detailed structural elements with full LibreOffice context
             if "document_outline" in context_dict:
                 document_structure["outline"] = context_dict["document_outline"]
             if "table_of_contents" in context_dict:
@@ -1023,13 +1023,85 @@ class LangGraphBridge:
             if "headings" in context_dict:
                 document_structure["headings"] = context_dict["headings"]
             
-            # Extract content organization
+            # Enhanced: Extract detailed table information
+            if "table_details" in context_dict:
+                document_structure["table_details"] = context_dict["table_details"]
+            if "tables" in context_dict and isinstance(context_dict["tables"], list):
+                document_structure["table_list"] = []
+                for table_info in context_dict["tables"]:
+                    if isinstance(table_info, dict):
+                        document_structure["table_list"].append({
+                            "name": table_info.get("name", ""),
+                            "rows": table_info.get("rows", 0),
+                            "columns": table_info.get("columns", 0),
+                            "position": table_info.get("position", {}),
+                            "style": table_info.get("style", "")
+                        })
+            
+            # Enhanced: Extract detailed image/graphics information  
+            if "images" in context_dict and isinstance(context_dict["images"], list):
+                document_structure["image_list"] = []
+                for image_info in context_dict["images"]:
+                    if isinstance(image_info, dict):
+                        document_structure["image_list"].append({
+                            "name": image_info.get("name", ""),
+                            "type": image_info.get("type", ""),
+                            "size": image_info.get("size", {}),
+                            "position": image_info.get("position", {}),
+                            "anchor": image_info.get("anchor", "")
+                        })
+            
+            # Enhanced: Extract section details with formatting
+            if "sections" in context_dict and isinstance(context_dict["sections"], list):
+                document_structure["section_list"] = []
+                for section_info in context_dict["sections"]:
+                    if isinstance(section_info, dict):
+                        document_structure["section_list"].append({
+                            "name": section_info.get("name", ""),
+                            "start_page": section_info.get("start_page", 1),
+                            "protection": section_info.get("protected", False),
+                            "columns": section_info.get("columns", 1),
+                            "header": section_info.get("header", {}),
+                            "footer": section_info.get("footer", {})
+                        })
+            
+            # Enhanced: Extract content organization with LibreOffice specifics
             if "styles_used" in context_dict:
                 document_structure["styles"] = context_dict["styles_used"]
+            if "style_definitions" in context_dict:
+                document_structure["style_definitions"] = context_dict["style_definitions"]
             if "references" in context_dict:
                 document_structure["references"] = context_dict["references"]
             if "footnotes" in context_dict:
                 document_structure["footnotes"] = context_dict["footnotes"]
+            if "endnotes" in context_dict:
+                document_structure["endnotes"] = context_dict["endnotes"]
+            if "bookmarks" in context_dict:
+                document_structure["bookmarks"] = context_dict["bookmarks"]
+            if "cross_references" in context_dict:
+                document_structure["cross_references"] = context_dict["cross_references"]
+            
+            # Enhanced: Extract page layout information
+            if "page_layout" in context_dict:
+                document_structure["page_layout"] = context_dict["page_layout"]
+            if "headers_footers" in context_dict:
+                document_structure["headers_footers"] = context_dict["headers_footers"]
+            if "page_breaks" in context_dict:
+                document_structure["page_breaks"] = context_dict["page_breaks"]
+            
+            # Enhanced: Extract track changes and collaboration data
+            if "track_changes" in context_dict:
+                document_structure["track_changes"] = {
+                    "enabled": context_dict["track_changes"].get("enabled", False),
+                    "changes": context_dict["track_changes"].get("changes", []),
+                    "comments": context_dict["track_changes"].get("comments", [])
+                }
+            
+            # Enhanced: Extract field information (mail merge, formulas, etc.)
+            if "fields" in context_dict:
+                document_structure["fields"] = context_dict["fields"]
+            if "forms" in context_dict:
+                document_structure["forms"] = context_dict["forms"]
             
             document_state["document_structure"] = document_structure
             
@@ -1038,41 +1110,131 @@ class LangGraphBridge:
     
     async def _map_formatting_state(self, context_dict: Dict[str, Any], 
                                   document_state: DocumentState):
-        """Map formatting state information to DocumentState."""
+        """Map formatting state information to DocumentState with comprehensive LibreOffice formatting data."""
         try:
             formatting_state = {}
             
-            # Extract current formatting
+            # Extract current character formatting with full LibreOffice support
             if "current_font" in context_dict:
-                formatting_state["font"] = context_dict["current_font"]
+                formatting_state["font_family"] = context_dict["current_font"]
             if "current_font_size" in context_dict:
                 formatting_state["font_size"] = context_dict["current_font_size"]
             if "current_style" in context_dict:
-                formatting_state["style"] = context_dict["current_style"]
+                formatting_state["current_style"] = context_dict["current_style"]
             
-            # Extract text formatting
+            # Enhanced: Extract comprehensive text formatting
+            character_formatting = {}
             if "is_bold" in context_dict:
-                formatting_state["bold"] = context_dict["is_bold"]
+                character_formatting["bold"] = context_dict["is_bold"]
             if "is_italic" in context_dict:
-                formatting_state["italic"] = context_dict["is_italic"]
+                character_formatting["italic"] = context_dict["is_italic"]
             if "is_underline" in context_dict:
-                formatting_state["underline"] = context_dict["is_underline"]
+                character_formatting["underline"] = context_dict["is_underline"]
+            if "is_strikethrough" in context_dict:
+                character_formatting["strikethrough"] = context_dict["is_strikethrough"]
+            if "font_color" in context_dict:
+                character_formatting["color"] = context_dict["font_color"]
+            if "background_color" in context_dict:
+                character_formatting["background"] = context_dict["background_color"]
+            if "superscript" in context_dict:
+                character_formatting["superscript"] = context_dict["superscript"]
+            if "subscript" in context_dict:
+                character_formatting["subscript"] = context_dict["subscript"]
+            if "font_weight" in context_dict:
+                character_formatting["weight"] = context_dict["font_weight"]
+            if "font_style" in context_dict:
+                character_formatting["style"] = context_dict["font_style"]
+            formatting_state["character_formatting"] = character_formatting
             
-            # Extract paragraph formatting
+            # Enhanced: Extract comprehensive paragraph formatting
+            paragraph_formatting = {}
             if "paragraph_alignment" in context_dict:
-                formatting_state["alignment"] = context_dict["paragraph_alignment"]
+                paragraph_formatting["alignment"] = context_dict["paragraph_alignment"]
             if "line_spacing" in context_dict:
-                formatting_state["line_spacing"] = context_dict["line_spacing"]
+                paragraph_formatting["line_spacing"] = context_dict["line_spacing"]
+            if "line_spacing_value" in context_dict:
+                paragraph_formatting["line_spacing_value"] = context_dict["line_spacing_value"]
             if "indent_level" in context_dict:
-                formatting_state["indent"] = context_dict["indent_level"]
+                paragraph_formatting["indent_level"] = context_dict["indent_level"]
+            if "left_indent" in context_dict:
+                paragraph_formatting["left_indent"] = context_dict["left_indent"]
+            if "right_indent" in context_dict:
+                paragraph_formatting["right_indent"] = context_dict["right_indent"]
+            if "first_line_indent" in context_dict:
+                paragraph_formatting["first_line_indent"] = context_dict["first_line_indent"]
+            if "space_before" in context_dict:
+                paragraph_formatting["space_before"] = context_dict["space_before"]
+            if "space_after" in context_dict:
+                paragraph_formatting["space_after"] = context_dict["space_after"]
+            if "keep_together" in context_dict:
+                paragraph_formatting["keep_together"] = context_dict["keep_together"]
+            if "page_break_before" in context_dict:
+                paragraph_formatting["page_break_before"] = context_dict["page_break_before"]
+            if "widow_control" in context_dict:
+                paragraph_formatting["widow_control"] = context_dict["widow_control"]
+            if "orphan_control" in context_dict:
+                paragraph_formatting["orphan_control"] = context_dict["orphan_control"]
+            formatting_state["paragraph_formatting"] = paragraph_formatting
             
-            # Extract page formatting
+            # Enhanced: Extract comprehensive page formatting
+            page_formatting = {}
             if "page_margins" in context_dict:
-                formatting_state["margins"] = context_dict["page_margins"]
+                page_formatting["margins"] = context_dict["page_margins"]
             if "page_orientation" in context_dict:
-                formatting_state["orientation"] = context_dict["page_orientation"]
+                page_formatting["orientation"] = context_dict["page_orientation"]
             if "page_size" in context_dict:
-                formatting_state["page_size"] = context_dict["page_size"]
+                page_formatting["size"] = context_dict["page_size"]
+            if "page_width" in context_dict:
+                page_formatting["width"] = context_dict["page_width"]
+            if "page_height" in context_dict:
+                page_formatting["height"] = context_dict["page_height"]
+            if "margin_top" in context_dict:
+                page_formatting["margin_top"] = context_dict["margin_top"]
+            if "margin_bottom" in context_dict:
+                page_formatting["margin_bottom"] = context_dict["margin_bottom"]
+            if "margin_left" in context_dict:
+                page_formatting["margin_left"] = context_dict["margin_left"]
+            if "margin_right" in context_dict:
+                page_formatting["margin_right"] = context_dict["margin_right"]
+            if "header_height" in context_dict:
+                page_formatting["header_height"] = context_dict["header_height"]
+            if "footer_height" in context_dict:
+                page_formatting["footer_height"] = context_dict["footer_height"]
+            if "gutter_margin" in context_dict:
+                page_formatting["gutter"] = context_dict["gutter_margin"]
+            formatting_state["page_formatting"] = page_formatting
+            
+            # Enhanced: Extract table formatting (if cursor is in table)
+            if "table_formatting" in context_dict:
+                table_formatting = context_dict["table_formatting"]
+                formatting_state["table_formatting"] = {
+                    "border_style": table_formatting.get("border_style", ""),
+                    "border_width": table_formatting.get("border_width", 0),
+                    "border_color": table_formatting.get("border_color", ""),
+                    "cell_background": table_formatting.get("cell_background", ""),
+                    "cell_padding": table_formatting.get("cell_padding", {}),
+                    "column_width": table_formatting.get("column_width", 0),
+                    "row_height": table_formatting.get("row_height", 0)
+                }
+            
+            # Enhanced: Extract numbering and bullets
+            if "numbering_style" in context_dict:
+                formatting_state["numbering"] = {
+                    "style": context_dict["numbering_style"],
+                    "level": context_dict.get("numbering_level", 0),
+                    "format": context_dict.get("numbering_format", ""),
+                    "start_value": context_dict.get("numbering_start", 1)
+                }
+            
+            # Enhanced: Extract language and locale settings
+            if "language" in context_dict:
+                formatting_state["language"] = context_dict["language"]
+            if "locale" in context_dict:
+                formatting_state["locale"] = context_dict["locale"]
+            if "spell_check" in context_dict:
+                formatting_state["spell_check"] = context_dict["spell_check"]
+            if "hyphenation" in context_dict:
+                formatting_state["hyphenation"] = context_dict["hyphenation"]
             
             document_state["formatting_state"] = formatting_state
             
@@ -1145,10 +1307,10 @@ class LangGraphBridge:
     async def _convert_agent_state_to_libreoffice_format(self, final_state: DocumentState, 
                                                        request_id: str) -> Dict[str, Any]:
         """
-        Convert final agent state to LibreOffice-compatible format.
+        Convert final agent state to LibreOffice-compatible format with comprehensive
+        extraction of both operations AND chat response content.
         
-        This method will be fully implemented in subtask 12.5.
-        Currently returns a basic conversion.
+        Enhanced to properly separate operations for execution from content for chat display.
         """
         try:
             libreoffice_response = {
@@ -1157,28 +1319,138 @@ class LangGraphBridge:
                 "operations": [],
                 "content_changes": {},
                 "formatting_changes": {},
+                "response_content": "",  # NEW: Chat response for user
+                "operation_summaries": [],  # NEW: Human-readable operation descriptions
                 "metadata": {}
             }
             
-            # Extract operations from final state
+            # Enhanced: Extract operations from final state with validation
             if final_state and "pending_operations" in final_state:
-                libreoffice_response["operations"] = final_state["pending_operations"]
+                operations = final_state["pending_operations"]
+                if isinstance(operations, list):
+                    # Validate and clean operations
+                    valid_operations = []
+                    operation_summaries = []
+                    
+                    for op in operations:
+                        if isinstance(op, dict) and "operation_type" in op:
+                            # Ensure operation has required fields
+                            clean_op = {
+                                "operation_id": op.get("operation_id", f"op_{len(valid_operations)}"),
+                                "operation_type": op.get("operation_type", "unknown"),
+                                "parameters": op.get("parameters", {}),
+                                "agent_id": op.get("agent_id", "unknown"),
+                                "priority": op.get("priority", 0),
+                                "status": op.get("status", "pending")
+                            }
+                            valid_operations.append(clean_op)
+                            
+                            # Create human-readable summary for each operation
+                            summary = self._create_operation_summary(clean_op)
+                            operation_summaries.append(summary)
+                    
+                    libreoffice_response["operations"] = valid_operations
+                    libreoffice_response["operation_summaries"] = operation_summaries
             
-            # Extract generated content
+            # Enhanced: Extract chat response content from multiple sources
+            response_content_parts = []
+            
+            # 1. Extract from generated content (primary content)
             if final_state and "generated_content" in final_state:
+                generated = final_state["generated_content"]
+                if isinstance(generated, list):
+                    for content in generated:
+                        if isinstance(content, str):
+                            response_content_parts.append(content)
+                        elif isinstance(content, dict) and "content" in content:
+                            response_content_parts.append(content["content"])
+                elif isinstance(generated, str):
+                    response_content_parts.append(generated)
+                    
+                # Store for operations
                 libreoffice_response["content_changes"] = {
-                    "generated_content": final_state["generated_content"]
+                    "generated_content": generated
                 }
             
-            # Extract formatting changes
-            if final_state and "formatting_state" in final_state:
-                libreoffice_response["formatting_changes"] = final_state["formatting_state"]
+            # 2. Extract from messages (agent responses)
+            if final_state and "messages" in final_state:
+                messages = final_state["messages"]
+                if isinstance(messages, list):
+                    for message in messages:
+                        # Look for AI messages (agent responses)
+                        if isinstance(message, dict):
+                            if message.get("role") == "assistant" or message.get("type") == "ai":
+                                content = message.get("content", "")
+                                if content and content not in response_content_parts:
+                                    response_content_parts.append(content)
+                        # Handle LangChain message objects
+                        elif hasattr(message, 'content') and hasattr(message, '__class__'):
+                            if 'AI' in message.__class__.__name__:
+                                content = message.content
+                                if content and content not in response_content_parts:
+                                    response_content_parts.append(content)
             
-            # Add metadata
+            # 3. Extract from agent results (individual agent outputs)
+            if final_state and "agent_status" in final_state:
+                agent_status = final_state["agent_status"]
+                if isinstance(agent_status, dict):
+                    for agent_id, status_info in agent_status.items():
+                        if isinstance(status_info, dict) and "response" in status_info:
+                            agent_response = status_info["response"]
+                            if isinstance(agent_response, str) and agent_response:
+                                response_content_parts.append(f"[{agent_id}]: {agent_response}")
+            
+            # 4. Generate default response if no content found
+            if not response_content_parts:
+                if libreoffice_response["operations"]:
+                    operation_count = len(libreoffice_response["operations"])
+                    if operation_count == 1:
+                        response_content_parts.append("Operation prepared for execution.")
+                    else:
+                        response_content_parts.append(f"{operation_count} operations prepared for execution.")
+                else:
+                    response_content_parts.append("Request processed successfully.")
+            
+            # Combine all response content
+            libreoffice_response["response_content"] = " ".join(response_content_parts)
+            
+            # Enhanced: Extract formatting changes with details
+            if final_state and "formatting_state" in final_state:
+                formatting_state = final_state["formatting_state"]
+                libreoffice_response["formatting_changes"] = formatting_state
+                
+                # Add formatting summary to response
+                if isinstance(formatting_state, dict):
+                    formatting_summary = self._create_formatting_summary(formatting_state)
+                    if formatting_summary:
+                        libreoffice_response["response_content"] += f" {formatting_summary}"
+            
+            # Enhanced: Extract validation results and warnings
+            if final_state and "validation_results" in final_state:
+                validation = final_state["validation_results"]
+                if isinstance(validation, dict):
+                    warnings = []
+                    for validation_id, result in validation.items():
+                        if isinstance(result, dict) and not result.get("passed", True):
+                            warnings.append(result.get("message", f"Validation {validation_id} failed"))
+                    
+                    if warnings:
+                        libreoffice_response["warnings"] = warnings
+                        libreoffice_response["response_content"] += f" Note: {', '.join(warnings[:2])}"
+            
+            # Enhanced: Add comprehensive metadata
             libreoffice_response["metadata"] = {
                 "processing_time": time.time(),
                 "agent_count": len(final_state.get("agent_status", {})),
-                "final_state_size": len(str(final_state))
+                "final_state_size": len(str(final_state)),
+                "operations_count": len(libreoffice_response["operations"]),
+                "response_length": len(libreoffice_response["response_content"]),
+                "has_formatting_changes": bool(libreoffice_response["formatting_changes"]),
+                "content_sources": {
+                    "generated_content": bool(final_state.get("generated_content")),
+                    "messages": bool(final_state.get("messages")),
+                    "agent_responses": bool(final_state.get("agent_status"))
+                }
             }
             
             return libreoffice_response
@@ -1192,8 +1464,94 @@ class LangGraphBridge:
                 "operations": [],
                 "content_changes": {},
                 "formatting_changes": {},
-                "metadata": {}
+                "response_content": f"Error processing request: {str(e)}",
+                "operation_summaries": [],
+                "metadata": {"error": True}
             }
+    
+    def _create_operation_summary(self, operation: Dict[str, Any]) -> str:
+        """Create human-readable summary of an operation for user feedback."""
+        try:
+            op_type = operation.get("operation_type", "unknown")
+            params = operation.get("parameters", {})
+            
+            # Generate operation-specific summaries
+            if op_type == "text_insert" or op_type == "insert_text":
+                text = params.get("text", "")[:50]
+                return f"Insert text: '{text}...'" if len(text) > 47 else f"Insert text: '{text}'"
+            
+            elif op_type == "text_format" or op_type == "format_text":
+                formatting = []
+                if params.get("bold"):
+                    formatting.append("bold")
+                if params.get("italic"):
+                    formatting.append("italic")
+                if params.get("underline"):
+                    formatting.append("underline")
+                if params.get("font_size"):
+                    formatting.append(f"size {params['font_size']}")
+                return f"Apply formatting: {', '.join(formatting)}" if formatting else "Apply text formatting"
+            
+            elif op_type == "table_create" or op_type == "create_table":
+                rows = params.get("rows", "?")
+                cols = params.get("columns", "?")
+                return f"Create table: {rows} rows × {cols} columns"
+            
+            elif op_type == "style_apply" or op_type == "apply_style":
+                style = params.get("style_name", params.get("style", "unknown"))
+                return f"Apply style: {style}"
+            
+            elif op_type == "image_insert" or op_type == "insert_image":
+                return "Insert image"
+            
+            elif op_type == "chart_create" or op_type == "create_chart":
+                chart_type = params.get("chart_type", "chart")
+                return f"Create {chart_type}"
+            
+            else:
+                return f"Execute {op_type.replace('_', ' ')}"
+                
+        except Exception:
+            return f"Execute operation: {op_type}"
+    
+    def _create_formatting_summary(self, formatting_state: Dict[str, Any]) -> str:
+        """Create summary of formatting changes for user feedback."""
+        try:
+            changes = []
+            
+            if isinstance(formatting_state, dict):
+                # Check character formatting
+                char_fmt = formatting_state.get("character_formatting", {})
+                if isinstance(char_fmt, dict):
+                    if char_fmt.get("bold"):
+                        changes.append("bold")
+                    if char_fmt.get("italic"):
+                        changes.append("italic")
+                    if char_fmt.get("underline"):
+                        changes.append("underline")
+                    if char_fmt.get("color"):
+                        changes.append("color")
+                
+                # Check paragraph formatting
+                para_fmt = formatting_state.get("paragraph_formatting", {})
+                if isinstance(para_fmt, dict):
+                    if para_fmt.get("alignment"):
+                        changes.append("alignment")
+                    if para_fmt.get("line_spacing"):
+                        changes.append("spacing")
+                
+                # Check font changes
+                if formatting_state.get("font_family"):
+                    changes.append("font")
+                if formatting_state.get("font_size"):
+                    changes.append("size")
+            
+            if changes:
+                return f"Formatting applied: {', '.join(changes[:3])}"
+            return ""
+            
+        except Exception:
+            return "Formatting changes applied"
     
     async def _send_progress_update(self, request_id: str, stage: str, 
                                   percentage: float, message: str):
