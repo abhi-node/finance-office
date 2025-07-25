@@ -20,8 +20,8 @@ yfinance>=0.2.18
 requests>=2.31.0
 
 # LibreOffice integration
-uno  # Will be available in LibreOffice Python environment
-pyuno  # LibreOffice Python UNO bridge
+# uno  # Will be available in LibreOffice Python environment - conflicts with pytest, skip for now
+# pyuno  # LibreOffice Python UNO bridge - will be available in LibreOffice environment
 
 # Performance and monitoring
 psutil>=5.9.0
@@ -47,3 +47,15 @@ python-dotenv>=1.0.0
 # Async processing
 asyncio-mqtt>=0.13.0
 aiofiles>=23.0.0
+
+# FastAPI Web Server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+
+# HTTP client libraries for testing
+httpx>=0.25.0
+aiohttp>=3.8.0
+
+# Additional Python standard library-like packages that may not be available
+setuptools>=68.0.0

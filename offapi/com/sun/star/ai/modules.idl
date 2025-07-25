@@ -22,8 +22,9 @@ module com { module sun { module star { module ai {
  * <li>Intelligent document manipulation through UNO services</li>
  * </ul>
  *
- * The primary interface for AI capabilities is XAIAgentCoordinator, which
- * serves as the bridge between LibreOffice components and AI agent systems.
+ * The primary interfaces for AI capabilities are:
+ * - XAIAgentCoordinator: Bridge between LibreOffice components and AI agent systems
+ * - XAIDocumentOperations: Direct document manipulation interface for AI agents
  *
  * @since LibreOffice 7.6
  */

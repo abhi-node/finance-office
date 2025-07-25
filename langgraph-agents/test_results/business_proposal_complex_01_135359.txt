@@ -1,0 +1,14 @@
+================================================================================
+LANGGRAPH AGENT DOCUMENT PROCESSING RESULT
+================================================================================
+
+📋 REQUEST INFORMATION:
+   User Request: Create a comprehensive financial analysis dashboard with live market data
+   Document Type: business_proposal
+   Document Pages: 8
+   Document Words: 3200
+   Timestamp: 2025-07-25T13:53:57.695741
+
+🎯 OVERALL RESULT:
+   Success: ❌ NO
+   Error: 'OrchestrationResult' object has no attribute 'get'

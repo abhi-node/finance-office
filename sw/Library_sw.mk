@@ -539,6 +539,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
     sw/source/core/ai/ErrorRecoveryManager \
     sw/source/core/ai/MessageQueue \
     sw/source/core/ai/AuthenticationManager \
+    sw/source/core/ai/operations/DocumentOperations \
     sw/source/filter/ascii/ascatr \
     sw/source/filter/ascii/parasc \
     sw/source/filter/ascii/wrtasc \

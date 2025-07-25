@@ -1,0 +1,14 @@
+================================================================================
+LANGGRAPH AGENT DOCUMENT PROCESSING RESULT
+================================================================================
+
+📋 REQUEST INFORMATION:
+   User Request: Generate an executive presentation with charts and visualizations from this data
+   Document Type: financial_report
+   Document Pages: 12
+   Document Words: 4850
+   Timestamp: 2025-07-25T13:53:48.143916
+
+🎯 OVERALL RESULT:
+   Success: ❌ NO
+   Error: 'OrchestrationResult' object has no attribute 'get'

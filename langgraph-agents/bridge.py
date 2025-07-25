@@ -26,6 +26,7 @@ The bridge acts as the primary interface between:
 import asyncio
 import json
 import logging
+import os
 import time
 import threading
 import uuid
@@ -1290,6 +1291,24 @@ async def initialize_bridge(config: Optional[BridgeConfiguration] = None) -> boo
     Returns:
         True if initialization successful
     """
+    # Create default config if none provided
+    if config is None:
+        # Check environment variable for integration method
+        integration_method_str = os.environ.get("BRIDGE_INTEGRATION_METHOD", "pyuno").lower()
+        if integration_method_str == "ctypes":
+            integration_method = IntegrationMethod.CTYPES
+        elif integration_method_str == "http_api":
+            integration_method = IntegrationMethod.HTTP_API
+        elif integration_method_str == "websocket":
+            integration_method = IntegrationMethod.WEBSOCKET
+        else:
+            integration_method = IntegrationMethod.PYUNO
+        
+        config = BridgeConfiguration(
+            integration_method=integration_method,
+            log_level=os.environ.get("AGENT_LOG_LEVEL", "INFO")
+        )
+    
     bridge = get_bridge(config)
     return await bridge.initialize()
 

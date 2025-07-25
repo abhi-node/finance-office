@@ -1,0 +1,316 @@
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/*
+ * This file is part of the LibreOffice project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
+module com { module sun { module star { module ai {
+
+/**
+ * XAIDocumentOperations - UNO interface for AI-driven document manipulation
+ * 
+ * This interface provides comprehensive document manipulation capabilities
+ * for the LibreOffice AI Writing Assistant LangGraph multi-agent system.
+ * It serves as the bridge between Python agents and LibreOffice's native
+ * document manipulation through SwEditShell, SwWrtShell, and document models.
+ * 
+ * All operations support undo/redo integration and are designed for optimal
+ * performance with 1-5 second response time targets per specifications.
+ */
+interface XAIDocumentOperations : com::sun::star::uno::XInterface
+{
+    /**
+     * Text insertion and formatting operations
+     * Provides comprehensive text manipulation with proper cursor management
+     */
+    
+    /**
+     * Insert text at specified position with optional formatting
+     * 
+     * @param rsText         Text to insert
+     * @param rPosition      Position for insertion (cursor position data)
+     * @param rFormatting    Formatting properties to apply
+     * @return               Operation ID for tracking and undo/redo
+     */
+    string insertText(
+        [in] string rsText,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+        
+    /**
+     * Apply formatting to specified text range
+     * 
+     * @param rTextRange     Text range to format
+     * @param rFormatting    Formatting properties to apply
+     * @return               Operation ID for tracking and undo/redo
+     */
+    string formatText(
+        [in] any rTextRange,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+        
+    /**
+     * Apply style to target element
+     * 
+     * @param rTarget           Target element for style application
+     * @param rsStyleName       Name of style to apply
+     * @param rStyleProperties  Additional style properties
+     * @return                  Operation ID for tracking and undo/redo
+     */
+    string applyStyle(
+        [in] any rTarget,
+        [in] string rsStyleName,
+        [in] sequence<com::sun::star::beans::PropertyValue> rStyleProperties);
+
+    /**
+     * Table creation and manipulation operations
+     * Advanced table operations with proper formatting and data population
+     */
+    
+    /**
+     * Create table with specified dimensions and properties
+     * 
+     * @param nRows             Number of table rows
+     * @param nColumns          Number of table columns
+     * @param rPosition         Position for table insertion
+     * @param rTableProperties  Table formatting and structure properties
+     * @return                  Operation ID for tracking and undo/redo
+     */
+    string createTable(
+        [in] long nRows,
+        [in] long nColumns,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rTableProperties);
+        
+    /**
+     * Populate table with data and formatting
+     * 
+     * @param rTableReference   Reference to existing table
+     * @param rData            2D array of table data
+     * @param rFormatting      Cell and table formatting properties
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string populateTable(
+        [in] any rTableReference,
+        [in] sequence< sequence< string > > rData,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+        
+    /**
+     * Modify table structure (add/remove rows/columns)
+     * 
+     * @param rTableReference   Reference to existing table
+     * @param rsOperation      Operation type (addRow, addColumn, removeRow, removeColumn)
+     * @param rParameters      Operation-specific parameters
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string modifyTableStructure(
+        [in] any rTableReference,
+        [in] string rsOperation,
+        [in] sequence<com::sun::star::beans::PropertyValue> rParameters);
+
+    /**
+     * Chart and graphics operations
+     * Professional chart creation with data binding and styling
+     */
+    
+    /**
+     * Insert chart with data and styling
+     * 
+     * @param rChartData        Chart data source and values
+     * @param rsChartType       Chart type (bar, line, pie, etc.)
+     * @param rPosition         Position for chart insertion
+     * @param rChartProperties  Chart styling and configuration
+     * @return                  Operation ID for tracking and undo/redo
+     */
+    string insertChart(
+        [in] any rChartData,
+        [in] string rsChartType,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rChartProperties);
+        
+    /**
+     * Insert graphic/image into document
+     * 
+     * @param rGraphicData        Image data or file reference
+     * @param rPosition           Position for graphic insertion
+     * @param rGraphicProperties  Graphic sizing and positioning properties
+     * @return                    Operation ID for tracking and undo/redo
+     */
+    string insertGraphic(
+        [in] any rGraphicData,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rGraphicProperties);
+
+    /**
+     * Financial data integration operations
+     * Specialized operations for financial document creation
+     */
+    
+    /**
+     * Insert financial data table with professional formatting
+     * 
+     * @param rFinancialData   Financial data from external APIs
+     * @param rPosition        Position for table insertion
+     * @param rFormatting      Financial document formatting standards
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string insertFinancialTable(
+        [in] sequence<com::sun::star::beans::PropertyValue> rFinancialData,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+        
+    /**
+     * Create financial chart from market data
+     * 
+     * @param rMarketData      Market data from financial APIs
+     * @param rsChartType      Chart type optimized for financial data
+     * @param rPosition        Position for chart insertion
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string createFinancialChart(
+        [in] sequence<com::sun::star::beans::PropertyValue> rMarketData,
+        [in] string rsChartType,
+        [in] any rPosition);
+        
+    /**
+     * Insert market summary with proper attribution
+     * 
+     * @param rSummaryData     Market summary data with citations
+     * @param rPosition        Position for summary insertion
+     * @param rFormatting      Summary formatting and styling
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string insertMarketSummary(
+        [in] sequence<com::sun::star::beans::PropertyValue> rSummaryData,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+
+    /**
+     * Document structure operations
+     * Page breaks, sections, headers/footers, and document organization
+     */
+    
+    /**
+     * Insert page break at specified position
+     * 
+     * @param rPosition        Position for page break insertion
+     * @param rsBreakType      Type of break (page, column, section)
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string insertPageBreak(
+        [in] any rPosition,
+        [in] string rsBreakType);
+        
+    /**
+     * Create document section with properties
+     * 
+     * @param rsSectionName        Section name for reference
+     * @param rPosition            Position for section creation
+     * @param rSectionProperties   Section configuration and formatting
+     * @return                     Operation ID for tracking and undo/redo
+     */
+    string createSection(
+        [in] string rsSectionName,
+        [in] any rPosition,
+        [in] sequence<com::sun::star::beans::PropertyValue> rSectionProperties);
+        
+    /**
+     * Modify header or footer content
+     * 
+     * @param rsType           Header/footer type (header, footer, first, odd, even)
+     * @param rsContent        Header/footer content
+     * @param rFormatting      Header/footer formatting properties
+     * @return                 Operation ID for tracking and undo/redo
+     */
+    string modifyHeaderFooter(
+        [in] string rsType,
+        [in] string rsContent,
+        [in] sequence<com::sun::star::beans::PropertyValue> rFormatting);
+
+    /**
+     * Operation management and undo/redo system
+     * Comprehensive operation tracking with full rollback capabilities
+     */
+    
+    /**
+     * Get complete operation history
+     * 
+     * @return                 Sequence of operation IDs and descriptions
+     */
+    sequence<string> getOperationHistory();
+    
+    /**
+     * Check if undo operation is available
+     * 
+     * @return                 True if undo is possible
+     */
+    boolean canUndo();
+    
+    /**
+     * Check if redo operation is available
+     * 
+     * @return                 True if redo is possible
+     */
+    boolean canRedo();
+    
+    /**
+     * Undo the last operation
+     * 
+     * @return                 Status message
+     */
+    string undoLastOperation();
+    
+    /**
+     * Redo the last undone operation
+     * 
+     * @return                 Status message
+     */
+    string redoLastOperation();
+    
+    /**
+     * Undo specific operation by ID
+     * 
+     * @param rsOperationId    Operation ID to undo
+     * @return                 Status message
+     */
+    string undoOperation([in] string rsOperationId);
+
+    /**
+     * Document context and analysis
+     * Provides document information for agent decision making
+     */
+    
+    /**
+     * Get comprehensive document context
+     * 
+     * @return                 Document context data for agent processing
+     */
+    any getDocumentContext();
+    
+    /**
+     * Get current cursor position
+     * 
+     * @return                 Cursor position data
+     */
+    any getCursorPosition();
+    
+    /**
+     * Get currently selected text
+     * 
+     * @return                 Selected text content
+     */
+    string getSelectedText();
+    
+    /**
+     * Get document structure information
+     * 
+     * @return                 Document structure analysis
+     */
+    any getDocumentStructure();
+};
+
+}; }; }; };
+
+/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

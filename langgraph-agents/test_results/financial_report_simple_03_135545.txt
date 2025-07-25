@@ -1,0 +1,57 @@
+================================================================================
+LANGGRAPH AGENT DOCUMENT PROCESSING RESULT
+================================================================================
+
+📋 REQUEST INFORMATION:
+   User Request: Add bullet points to the recommendations list
+   Document Type: financial_report
+   Document Pages: 12
+   Document Words: 4850
+   Timestamp: 2025-07-25T13:55:45.531531
+
+🎯 OVERALL RESULT:
+   Success: ✅ YES
+
+🧠 COMPLEXITY ANALYSIS:
+   Detected Complexity: simple
+   Operation Type: basic_formatting
+   Confidence Score: 0.70
+   Estimated Time: 1.20 seconds
+   Reasoning: Operation classified as 'basic_formatting'; rule-based analysis only; → simple complexity routing
+
+🔀 ROUTING DECISION:
+   Router Selected: lightweight
+   Routing Strategy: optimized_patterns
+   Agents Used: formatting_agent, execution_agent
+
+🤖 AGENT EXECUTION:
+   Execution Mode: optimized_patterns
+   Success: ✅ YES
+   Execution Time: 0.402 seconds
+   Parallel Efficiency: 0.00
+   Total Agents: 2
+
+   📝 Individual Agent Results:
+      1. formatting_agent: ✅
+         Result: Applied professional formatting and styling to improve document presentation.
+      2. execution_agent: ✅
+         Result: Executed document modifications and applied changes successfully.
+
+📊 PERFORMANCE METRICS:
+   Total Execution Time: 0.403 seconds
+   Analysis Time: 0.100 seconds
+   Routing Time: 0.050 seconds
+   Agent Execution Time: 0.402 seconds
+   Quality Score: 0.85
+
+📤 FINAL OUTPUT:
+   Operation Status: completed
+   Changes Applied: Document processed according to user request
+   Document Modifications:
+      - Applied simple level processing
+      - Used lightweight routing strategy
+      - Processed by 2 agents
+
+================================================================================
+End of Result - Generated at 2025-07-25 13:55:45
+================================================================================

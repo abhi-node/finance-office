@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union, Set, Callable
+from typing import Any, Dict, List, Optional, Union, Set, Callable, Tuple
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -47,11 +47,19 @@ from .base import (
 try:
     from .validation import ValidationAgent, ValidationRequest, ValidationLevel, ValidationCategory
     from .execution import ExecutionAgent, ExecutionOperation, OperationType, OperationPriority
+    from .context_analysis import ContextAnalysisAgent
+    from .content_generation import ContentGenerationAgent
+    from .formatting import FormattingAgent
+    from .data_integration import DataIntegrationAgent
     AGENTS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     # Fallback for development without all agents
     ValidationAgent = None
     ExecutionAgent = None
+    ContextAnalysisAgent = None
+    ContentGenerationAgent = None
+    FormattingAgent = None
+    DataIntegrationAgent = None
     AGENTS_AVAILABLE = False
 
 # Import LangGraph types
@@ -181,6 +189,30 @@ class DocumentMasterAgent(BaseAgent):
             return
         
         try:
+            # Initialize ContextAnalysisAgent
+            if ContextAnalysisAgent:
+                context_agent = ContextAnalysisAgent("context_analysis_agent")
+                self.register_agent(context_agent)
+                self.logger.info("Registered ContextAnalysisAgent")
+            
+            # Initialize ContentGenerationAgent
+            if ContentGenerationAgent:
+                content_agent = ContentGenerationAgent("content_generation_agent")
+                self.register_agent(content_agent)
+                self.logger.info("Registered ContentGenerationAgent")
+            
+            # Initialize FormattingAgent
+            if FormattingAgent:
+                formatting_agent = FormattingAgent("formatting_agent")
+                self.register_agent(formatting_agent)
+                self.logger.info("Registered FormattingAgent")
+            
+            # Initialize DataIntegrationAgent
+            if DataIntegrationAgent:
+                data_agent = DataIntegrationAgent("data_integration_agent")
+                self.register_agent(data_agent)
+                self.logger.info("Registered DataIntegrationAgent")
+            
             # Initialize ValidationAgent
             if ValidationAgent:
                 validation_agent = ValidationAgent("validation_agent")
@@ -766,6 +798,112 @@ class DocumentMasterAgent(BaseAgent):
             return "fallback_to_simple_workflow"
         else:
             return "graceful_degradation_with_user_notification"
+    
+    # Task 18: Intelligent Agent Routing System Implementation
+    
+    def _get_simple_workflow_agents(self, operation_type: str) -> List[str]:
+        """
+        Determine agents for simple operations (1-2 seconds).
+        Optimized for minimal agent involvement with direct execution.
+        """
+        # Simple operations skip unnecessary agents for performance
+        routing_map = {
+            "chart_creation": ["context_analysis_agent", "formatting_agent", "execution_agent"],
+            "basic_formatting": ["formatting_agent", "execution_agent"],
+            "table_operations": ["context_analysis_agent", "formatting_agent", "execution_agent"],
+            "direct_editing": ["execution_agent"],
+            "page_operations": ["formatting_agent", "execution_agent"]
+        }
+        
+        return routing_map.get(operation_type, ["context_analysis_agent", "execution_agent"])
+    
+    def _get_moderate_workflow_agents(self, operation_type: str) -> List[str]:
+        """
+        Determine agents for moderate operations (2-4 seconds).
+        Focused agent subset with streamlined validation.
+        """
+        routing_map = {
+            "content_writing": ["context_analysis_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "document_styling": ["context_analysis_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "simple_research": ["context_analysis_agent", "data_integration_agent", "content_generation_agent", "formatting_agent", "execution_agent"],
+            "content_analysis": ["context_analysis_agent", "content_generation_agent", "validation_agent", "execution_agent"],
+            "structure_operations": ["context_analysis_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"]
+        }
+        
+        return routing_map.get(operation_type, ["context_analysis_agent", "content_generation_agent", "formatting_agent", "execution_agent"])
+    
+    def _get_complex_workflow_agents(self, operation_type: str) -> List[str]:
+        """
+        Determine agents for complex operations (3-5 seconds).
+        Full agent orchestration with comprehensive validation.
+        """
+        routing_map = {
+            "financial_analysis": ["context_analysis_agent", "data_integration_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "research_integration": ["context_analysis_agent", "data_integration_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "multi_step_operations": ["context_analysis_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "data_driven_content": ["context_analysis_agent", "data_integration_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"],
+            "collaborative_operations": ["context_analysis_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"]
+        }
+        
+        # Complex operations always use full agent network
+        return routing_map.get(operation_type, ["context_analysis_agent", "data_integration_agent", "content_generation_agent", "formatting_agent", "validation_agent", "execution_agent"])
+    
+    def _get_complex_parallel_workflow(self, operation_type: str) -> Tuple[List[str], List[List[str]]]:
+        """
+        Determine agents and parallel groups for complex operations requiring parallel processing.
+        Returns tuple of (all_agents, parallel_groups) for coordinated execution.
+        """
+        all_agents = self._get_complex_workflow_agents(operation_type)
+        
+        # Define parallel execution groups for performance optimization
+        parallel_groups = []
+        
+        if operation_type in ["financial_analysis", "data_driven_content"]:
+            # Parallel: Context analysis + Data integration
+            parallel_groups = [
+                ["context_analysis_agent", "data_integration_agent"],
+                ["content_generation_agent"],
+                ["formatting_agent"],
+                ["validation_agent"],
+                ["execution_agent"]
+            ]
+        elif operation_type == "research_integration":
+            # Parallel: Context analysis + Data integration
+            parallel_groups = [
+                ["context_analysis_agent", "data_integration_agent"],
+                ["content_generation_agent"],
+                ["formatting_agent"],
+                ["validation_agent"],
+                ["execution_agent"]
+            ]
+        else:
+            # Sequential execution for other complex operations
+            parallel_groups = [[agent] for agent in all_agents]
+        
+        return all_agents, parallel_groups
+    
+    def _should_use_parallel_processing(self, analysis: RequestAnalysis, state: DocumentState) -> bool:
+        """
+        Determine if parallel processing would benefit the operation.
+        Based on operation type, complexity, and system resources.
+        """
+        # Enable parallel processing for data-intensive operations
+        parallel_operations = [
+            "financial_analysis", 
+            "research_integration", 
+            "data_driven_content"
+        ]
+        
+        # Check if operation benefits from parallelization
+        if analysis.operation_type in parallel_operations:
+            return True
+        
+        # Check system resources (simplified - could be more sophisticated)
+        # Enable parallel processing if multiple heavy operations are detected
+        if "data" in analysis.user_request.lower() and "analysis" in analysis.user_request.lower():
+            return True
+        
+        return False
     
     async def _execute_simple_workflow(self, 
                                      plan: OperationPlan, 

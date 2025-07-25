@@ -169,4 +169,8 @@
       constructor="com_sun_star_comp_Writer_AIAgentCoordinator_get_implementation">
     <service name="com.sun.star.ai.AIAgentCoordinator"/>
   </implementation>
+  <implementation name="com.sun.star.ai.DocumentOperations"
+      constructor="com_sun_star_ai_DocumentOperations_get_implementation">
+    <service name="com.sun.star.ai.XAIDocumentOperations"/>
+  </implementation>
 </component>

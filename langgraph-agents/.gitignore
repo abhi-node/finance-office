@@ -1,6 +1,3 @@
-# Environment variables (contains API keys)
-.env
-
 # Python
 __pycache__/
 *.py[cod]
@@ -25,46 +22,21 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Virtual environments
-.env/
-.venv/
-env/
+# Virtual Environment
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
+.venv/
+.env/
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -73,21 +45,36 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+.nox/
+
 # Logs
 logs/
 *.log
 
-# Cache directories
+# Cache
 cache/
 .cache/
+
+# Data
 data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Redis
+dump.rdb
 
 # Temporary files
-tmp/
-temp/
 *.tmp
-
-# Agent-specific ignores
-agent_config.json
-performance_metrics.json
-error_reports/
+*.temp
+.tmp/

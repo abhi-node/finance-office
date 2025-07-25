@@ -1,0 +1,51 @@
+================================================================================
+LANGGRAPH AGENT DOCUMENT PROCESSING RESULT
+================================================================================
+
+📋 REQUEST INFORMATION:
+   User Request: Format this document with a professional business style
+   Document Type: business_proposal
+   Document Pages: 8
+   Document Words: 3200
+   Timestamp: 2025-07-25T13:56:05.203080
+
+🎯 OVERALL RESULT:
+   Success: ✅ YES
+
+🧠 COMPLEXITY ANALYSIS:
+   Detected Complexity: moderate
+   Operation Type: document_styling
+   Confidence Score: 0.70
+   Estimated Time: 2.50 seconds
+   Reasoning: Operation classified as 'document_styling'; requires complex formatting; rule-based analysis only; → moderate complexity routing
+
+🔀 ROUTING DECISION:
+   Router Selected: focused
+   Routing Strategy: agent_subset
+   Agents Used: 
+
+🤖 AGENT EXECUTION:
+   Execution Mode: agent_subset
+   Success: ✅ YES
+   Execution Time: 0.000 seconds
+   Parallel Efficiency: 1.00
+   Total Agents: 0
+
+📊 PERFORMANCE METRICS:
+   Total Execution Time: 0.001 seconds
+   Analysis Time: 0.100 seconds
+   Routing Time: 0.050 seconds
+   Agent Execution Time: 0.000 seconds
+   Quality Score: 0.85
+
+📤 FINAL OUTPUT:
+   Operation Status: completed
+   Changes Applied: Document processed according to user request
+   Document Modifications:
+      - Applied moderate level processing
+      - Used focused routing strategy
+      - Processed by 0 agents
+
+================================================================================
+End of Result - Generated at 2025-07-25 13:56:05
+================================================================================
