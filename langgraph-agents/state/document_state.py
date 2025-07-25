@@ -281,7 +281,18 @@ class DocumentStateManager:
             optimization_recommendations=[]
         )
     
-    def get_state(self) -> DocumentState:
+    async def create_state(self, initial_data: Dict[str, Any]) -> str:
+        """Create a new state with the given initial data and return state ID."""
+        state_id = str(uuid.uuid4())
+        with self._lock:
+            # Create new state based on provided data
+            new_state = self._create_default_state()
+            new_state.update(initial_data)
+            self._state = new_state
+            self._create_snapshot(f"Created state: {state_id}")
+        return state_id
+    
+    async def get_state(self, state_id: Optional[str] = None) -> DocumentState:
         """Get a deep copy of the current state (thread-safe)."""
         with self._lock:
             return deepcopy(self._state)

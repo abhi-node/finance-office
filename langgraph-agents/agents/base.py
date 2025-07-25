@@ -62,6 +62,8 @@ class AgentCapability(Enum):
     FORMATTING = "formatting"
     DATA_INTEGRATION = "data_integration"
     VALIDATION = "validation"
+    QUALITY_ASSURANCE = "quality_assurance"
+    COMPLIANCE_CHECKING = "compliance_checking"
     EXECUTION = "execution"
     ORCHESTRATION = "orchestration"
 

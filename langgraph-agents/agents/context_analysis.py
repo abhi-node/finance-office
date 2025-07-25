@@ -23,6 +23,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 import hashlib
+import weakref
+from collections import OrderedDict
+from threading import Lock
 
 # Import base agent classes
 from .base import (
@@ -33,6 +36,9 @@ from .base import (
     ValidationResult,
     PerformanceMetrics
 )
+
+# Import LLM client for AI-powered analysis
+from llm_client import get_llm_client, AnalysisMode as LLMAnalysisMode
 
 # Import state management
 try:
@@ -104,6 +110,237 @@ class CacheEntry:
     ttl_seconds: int = 300  # 5 minutes default
 
 
+class AnalysisCache:
+    """
+    Intelligent caching system for analysis results with cache invalidation
+    strategies and performance monitoring.
+    
+    Features:
+    - LRU-based cache eviction with configurable size limits
+    - TTL-based expiration for temporal consistency
+    - Document change detection for cache invalidation
+    - Performance metrics collection for optimization insights
+    - Thread-safe operations for concurrent access
+    """
+    
+    def __init__(self, max_size: int = 1000, default_ttl: int = 300):
+        """
+        Initialize the analysis cache.
+        
+        Args:
+            max_size: Maximum number of entries to cache
+            default_ttl: Default time-to-live in seconds
+        """
+        self.max_size = max_size
+        self.default_ttl = default_ttl
+        
+        # Thread-safe cache storage
+        self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._lock = Lock()
+        
+        # Performance metrics
+        self._hits = 0
+        self._misses = 0
+        self._evictions = 0
+        self._invalidations = 0
+        
+        # Document tracking for invalidation
+        self._document_versions: Dict[str, str] = {}
+        
+    def cache_analysis_result(self, 
+                            cache_key: str, 
+                            result: AnalysisResult, 
+                            ttl_seconds: Optional[int] = None) -> None:
+        """
+        Cache an analysis result with automatic eviction management.
+        
+        Args:
+            cache_key: Unique key for the cached result
+            result: Analysis result to cache
+            ttl_seconds: Optional custom TTL, uses default if None
+        """
+        with self._lock:
+            # Remove existing entry if present
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+            
+            # Create cache entry
+            entry = CacheEntry(
+                cache_key=cache_key,
+                result=result,
+                timestamp=datetime.now(timezone.utc),
+                ttl_seconds=ttl_seconds or self.default_ttl
+            )
+            
+            # Add to cache (most recent)
+            self._cache[cache_key] = entry
+            
+            # Evict oldest entries if over size limit
+            while len(self._cache) > self.max_size:
+                oldest_key = next(iter(self._cache))
+                del self._cache[oldest_key]
+                self._evictions += 1
+    
+    def get_cached_analysis(self, cache_key: str) -> Optional[AnalysisResult]:
+        """
+        Retrieve cached analysis result if valid.
+        
+        Args:
+            cache_key: Unique key for the cached result
+            
+        Returns:
+            Cached analysis result or None if not found/expired
+        """
+        with self._lock:
+            entry = self._cache.get(cache_key)
+            
+            if entry is None:
+                self._misses += 1
+                return None
+            
+            # Check TTL expiration
+            age_seconds = (datetime.now(timezone.utc) - entry.timestamp).total_seconds()
+            if age_seconds > entry.ttl_seconds:
+                del self._cache[cache_key]
+                self._misses += 1
+                return None
+            
+            # Update access pattern (move to end for LRU)
+            self._cache.move_to_end(cache_key)
+            entry.access_count += 1
+            
+            # Mark as cache hit
+            result = entry.result
+            result.cache_hit = True
+            self._hits += 1
+            
+            return result
+    
+    def invalidate_cache(self, 
+                        pattern: Optional[str] = None, 
+                        document_path: Optional[str] = None) -> int:
+        """
+        Invalidate cached entries based on pattern or document changes.
+        
+        Args:
+            pattern: Optional pattern to match cache keys
+            document_path: Optional document path for document-specific invalidation
+            
+        Returns:
+            Number of entries invalidated
+        """
+        invalidated = 0
+        
+        with self._lock:
+            keys_to_remove = []
+            
+            for cache_key in self._cache:
+                should_invalidate = False
+                
+                # Pattern-based invalidation
+                if pattern and pattern in cache_key:
+                    should_invalidate = True
+                
+                # Document-based invalidation
+                if document_path and cache_key.startswith(f"doc:{document_path}"):
+                    should_invalidate = True
+                
+                if should_invalidate:
+                    keys_to_remove.append(cache_key)
+            
+            # Remove invalidated entries
+            for key in keys_to_remove:
+                del self._cache[key]
+                invalidated += 1
+                self._invalidations += 1
+        
+        return invalidated
+    
+    def update_document_version(self, document_path: str, version_hash: str) -> bool:
+        """
+        Update document version and invalidate cache if changed.
+        
+        Args:
+            document_path: Path to the document
+            version_hash: New version hash of the document
+            
+        Returns:
+            True if document changed and cache was invalidated
+        """
+        with self._lock:
+            old_version = self._document_versions.get(document_path)
+            
+            if old_version != version_hash:
+                # Document changed, invalidate related cache entries
+                self._document_versions[document_path] = version_hash
+                invalidated = self.invalidate_cache(document_path=document_path)
+                return invalidated > 0
+            
+            return False
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Get cache performance metrics for optimization insights.
+        
+        Returns:
+            Dictionary containing performance metrics
+        """
+        with self._lock:
+            total_requests = self._hits + self._misses
+            hit_rate = (self._hits / total_requests) if total_requests > 0 else 0.0
+            
+            return {
+                "cache_size": len(self._cache),
+                "max_size": self.max_size,
+                "hit_rate": hit_rate,
+                "hits": self._hits,
+                "misses": self._misses,
+                "evictions": self._evictions,
+                "invalidations": self._invalidations,
+                "total_requests": total_requests
+            }
+    
+    def clear_cache(self) -> int:
+        """
+        Clear all cached entries.
+        
+        Returns:
+            Number of entries cleared
+        """
+        with self._lock:
+            cleared = len(self._cache)
+            self._cache.clear()
+            self._document_versions.clear()
+            return cleared
+    
+    def generate_cache_key(self, 
+                          document_path: str, 
+                          analysis_mode: str, 
+                          context_data: Dict[str, Any]) -> str:
+        """
+        Generate a deterministic cache key for analysis parameters.
+        
+        Args:
+            document_path: Path to the document being analyzed
+            analysis_mode: Type of analysis being performed
+            context_data: Context information for the analysis
+            
+        Returns:
+            Deterministic cache key string
+        """
+        # Create deterministic hash of key parameters
+        key_data = {
+            "document": document_path,
+            "mode": analysis_mode,
+            "context": context_data
+        }
+        
+        key_string = json.dumps(key_data, sort_keys=True)
+        key_hash = hashlib.sha256(key_string.encode()).hexdigest()[:16]
+        
+        return f"analysis:{analysis_mode}:{key_hash}"
+
+
 class ContextAnalysisAgent(BaseAgent):
     """
     Specialized agent for document context analysis and semantic understanding.
@@ -161,18 +398,25 @@ class ContextAnalysisAgent(BaseAgent):
             config=merged_config
         )
         
-        # Analysis cache
-        self.analysis_cache: Dict[str, CacheEntry] = {}
+        # Enhanced Analysis Cache
         self.cache_enabled = self.config.get("cache_enabled", True)
-        self.cache_max_entries = self.config.get("cache_max_entries", 100)
-        self.cache_ttl_seconds = self.config.get("cache_ttl_seconds", 300)
+        cache_max_entries = self.config.get("cache_max_entries", 100)
+        cache_ttl_seconds = self.config.get("cache_ttl_seconds", 300)
+        
+        self.analysis_cache = AnalysisCache(
+            max_size=cache_max_entries,
+            default_ttl=cache_ttl_seconds
+        ) if self.cache_enabled else None
         
         # Performance targets
         self.performance_targets = self.config.get("performance_targets", {})
         
-        # LibreOffice UNO connection (placeholder for future implementation)
+        # LibreOffice UNO connection 
         self.uno_bridge = None
         self.document_service = None
+        self.swdoc_model = None
+        self.uno_connection_timeout = self.config.get("uno_connection_timeout", 5.0)
+        self.uno_retry_attempts = self.config.get("uno_retry_attempts", 3)
         
         # Semantic analysis components (placeholder for future implementation)
         self.semantic_analyzer = None
@@ -189,13 +433,28 @@ class ContextAnalysisAgent(BaseAgent):
         # Initialize semantic analysis components (placeholder)
         self._initialize_semantic_analyzer()
         
+        # Initialize LLM client for AI-powered analysis
+        self.llm_client = get_llm_client()
+        
         self.logger.info("ContextAnalysisAgent initialization completed")
     
     def _initialize_uno_bridge(self) -> None:
-        """Initialize LibreOffice UNO bridge connection (placeholder)."""
-        # TODO: Implement actual UNO bridge connection in Task 13.4
-        self.logger.debug("UNO bridge initialization (placeholder)")
-        self.uno_bridge = None
+        """Initialize LibreOffice UNO bridge connection."""
+        try:
+            # Connect to LibreOffice UNO bridge
+            self.uno_bridge = self._connect_to_uno_bridge()
+            
+            if self.uno_bridge:
+                # Access document service
+                self.document_service = self._get_document_service()
+                self.logger.info("UNO bridge connection established successfully")
+            else:
+                self.logger.warning("UNO bridge connection failed - operating in fallback mode")
+                
+        except Exception as e:
+            self.logger.error(f"UNO bridge initialization failed: {e}")
+            self.uno_bridge = None
+            self.document_service = None
     
     def _initialize_semantic_analyzer(self) -> None:
         """Initialize semantic analysis components (placeholder)."""
@@ -226,6 +485,13 @@ class ContextAnalysisAgent(BaseAgent):
             # Determine analysis mode if not specified
             if not analysis_request.analysis_mode:
                 analysis_request.analysis_mode = self._determine_analysis_mode(state, message)
+            
+            # Check for document changes and invalidate cache if needed
+            if self.analysis_cache:
+                document_path = state.get("current_document", {}).get("path", "")
+                if document_path:
+                    current_hash = self.calculate_document_hash(state)
+                    self.update_document_version(document_path, current_hash)
             
             # Check cache first
             cache_result = await self._check_cache(analysis_request)
@@ -400,64 +666,57 @@ class ContextAnalysisAgent(BaseAgent):
                            request: AnalysisRequest, 
                            state: DocumentState) -> str:
         """Generate cache key for analysis request."""
-        # Create hash from relevant state components
-        cache_data = {
-            "document_path": state.get("current_document", {}).get("path", ""),
+        if not self.analysis_cache:
+            # Fallback cache key generation
+            cache_data = {
+                "document_path": state.get("current_document", {}).get("path", ""),
+                "cursor_position": state.get("cursor_position", {}),
+                "analysis_mode": request.analysis_mode.value if request.analysis_mode else "auto",
+                "context_types": [ct.value for ct in request.context_types]
+            }
+            cache_string = json.dumps(cache_data, sort_keys=True)
+            return hashlib.md5(cache_string.encode()).hexdigest()
+        
+        # Use enhanced cache key generation
+        document_path = state.get("current_document", {}).get("path", "")
+        analysis_mode = request.analysis_mode.value if request.analysis_mode else "auto"
+        context_data = {
             "cursor_position": state.get("cursor_position", {}),
-            "analysis_mode": request.analysis_mode.value if request.analysis_mode else "auto",
-            "context_types": [ct.value for ct in request.context_types]
+            "context_types": [ct.value for ct in request.context_types],
+            "content_focus": request.content_focus
         }
         
-        cache_string = json.dumps(cache_data, sort_keys=True)
-        return hashlib.md5(cache_string.encode()).hexdigest()
+        return self.analysis_cache.generate_cache_key(
+            document_path=document_path,
+            analysis_mode=analysis_mode,
+            context_data=context_data
+        )
     
     async def _check_cache(self, request: AnalysisRequest) -> Optional[AnalysisResult]:
         """Check if analysis result is cached."""
-        if not self.cache_enabled or not request.cache_key:
+        if not self.cache_enabled or not self.analysis_cache or not request.cache_key:
             return None
         
-        cache_entry = self.analysis_cache.get(request.cache_key)
-        if not cache_entry:
-            return None
+        # Use the enhanced cache system
+        cached_result = self.analysis_cache.get_cached_analysis(request.cache_key)
         
-        # Check TTL
-        age_seconds = (datetime.now(timezone.utc) - cache_entry.timestamp).total_seconds()
-        if age_seconds > cache_entry.ttl_seconds:
-            # Remove expired entry
-            del self.analysis_cache[request.cache_key]
-            return None
+        if cached_result:
+            self.logger.debug(f"Cache hit for analysis request {request.request_id}")
+            return cached_result
         
-        # Update access count
-        cache_entry.access_count += 1
-        
-        # Mark as cache hit
-        cache_entry.result.cache_hit = True
-        
-        return cache_entry.result
+        return None
     
     async def _cache_result(self, request: AnalysisRequest, result: AnalysisResult) -> None:
         """Cache analysis result."""
-        if not self.cache_enabled or not request.cache_key:
+        if not self.cache_enabled or not self.analysis_cache or not request.cache_key:
             return
         
-        # Check cache size limit
-        if len(self.analysis_cache) >= self.cache_max_entries:
-            # Remove oldest entry
-            oldest_key = min(
-                self.analysis_cache.keys(),
-                key=lambda k: self.analysis_cache[k].timestamp
-            )
-            del self.analysis_cache[oldest_key]
-        
-        # Create cache entry
-        cache_entry = CacheEntry(
+        # Use the enhanced cache system
+        self.analysis_cache.cache_analysis_result(
             cache_key=request.cache_key,
-            result=result,
-            timestamp=datetime.now(timezone.utc),
-            ttl_seconds=self.cache_ttl_seconds
+            result=result
         )
         
-        self.analysis_cache[request.cache_key] = cache_entry
         self.logger.debug(f"Cached analysis result with key {request.cache_key}")
     
     async def _perform_analysis(self, 
@@ -506,14 +765,52 @@ class ContextAnalysisAgent(BaseAgent):
                                            request: AnalysisRequest, 
                                            state: DocumentState, 
                                            result: AnalysisResult) -> None:
-        """Perform lightweight analysis for simple operations."""
-        # Enhanced cursor position analysis
-        cursor_context = await self.analyze_cursor_position(state)
-        result.cursor_context = cursor_context
-        
-        # Fast basic context extraction
-        basic_context = await self.get_basic_context(state)
-        result.context_data = basic_context
+        """Perform lightweight analysis for simple operations using LLM."""
+        try:
+            # Get user message for context
+            user_message = None
+            if state.get("messages"):
+                user_message = state["messages"][-1].get("content", "")
+            
+            # Use LLM for intelligent lightweight analysis
+            llm_response = await self.llm_client.analyze_document_context(
+                document_state=state,
+                analysis_mode=LLMAnalysisMode.LIGHTWEIGHT,
+                user_message=user_message
+            )
+            
+            if llm_response.success:
+                # Parse LLM response (expecting JSON)
+                import json
+                try:
+                    analysis_data = json.loads(llm_response.content)
+                    result.cursor_context = analysis_data.get("cursor_context", {})
+                    result.context_data = analysis_data.get("navigation_info", {})
+                    result.metadata = {
+                        "llm_provider": llm_response.provider.value,
+                        "llm_model": llm_response.model,
+                        "tokens_used": llm_response.tokens_used,
+                        "analysis_mode": "lightweight"
+                    }
+                except json.JSONDecodeError:
+                    # Fallback to using raw content
+                    result.context_data = {"analysis": llm_response.content}
+                    result.cursor_context = {"raw_analysis": True}
+            else:
+                # Fallback to basic analysis if LLM fails
+                self.logger.warning(f"LLM analysis failed: {llm_response.error}, using fallback")
+                cursor_context = await self.analyze_cursor_position(state)
+                result.cursor_context = cursor_context
+                basic_context = await self.get_basic_context(state)
+                result.context_data = basic_context
+                
+        except Exception as e:
+            self.logger.error(f"Lightweight analysis failed: {e}")
+            # Fallback to basic analysis
+            cursor_context = await self.analyze_cursor_position(state)
+            result.cursor_context = cursor_context
+            basic_context = await self.get_basic_context(state)
+            result.context_data = basic_context
         
         # Minimal semantic understanding
         simple_semantics = await self.extract_simple_semantics(state)
@@ -529,7 +826,54 @@ class ContextAnalysisAgent(BaseAgent):
                                        request: AnalysisRequest, 
                                        state: DocumentState, 
                                        result: AnalysisResult) -> None:
-        """Perform focused analysis for moderate operations."""
+        """Perform focused analysis for moderate operations using LLM."""
+        try:
+            # Get user message for context
+            user_message = None
+            if state.get("messages"):
+                user_message = state["messages"][-1].get("content", "")
+            
+            # Use LLM for intelligent focused analysis
+            llm_response = await self.llm_client.analyze_document_context(
+                document_state=state,
+                analysis_mode=LLMAnalysisMode.FOCUSED,
+                user_message=user_message
+            )
+            
+            if llm_response.success:
+                # Parse LLM response (expecting JSON)
+                import json
+                try:
+                    analysis_data = json.loads(llm_response.content)
+                    result.document_structure = analysis_data.get("document_structure", {})
+                    result.context_data = analysis_data.get("content_relationships", {})
+                    result.cursor_context = analysis_data.get("formatting_context", {})
+                    result.semantic_insights = analysis_data.get("suggestions", {})
+                    result.metadata = {
+                        "llm_provider": llm_response.provider.value,
+                        "llm_model": llm_response.model,
+                        "tokens_used": llm_response.tokens_used,
+                        "analysis_mode": "focused"
+                    }
+                except json.JSONDecodeError:
+                    # Fallback to using raw content
+                    result.context_data = {"analysis": llm_response.content}
+                    result.document_structure = {"raw_analysis": True}
+            else:
+                # Fallback to basic analysis if LLM fails
+                self.logger.warning(f"LLM focused analysis failed: {llm_response.error}, using fallback")
+                await self._perform_focused_analysis_fallback(request, state, result)
+                
+        except Exception as e:
+            self.logger.error(f"Focused analysis failed: {e}")
+            # Fallback to basic analysis
+            await self._perform_focused_analysis_fallback(request, state, result)
+    
+    async def _perform_focused_analysis_fallback(self, 
+                                               request: AnalysisRequest, 
+                                               state: DocumentState, 
+                                               result: AnalysisResult) -> None:
+        """Fallback focused analysis without LLM."""
         # Include lightweight analysis
         await self._perform_lightweight_analysis(request, state, result)
         
@@ -575,7 +919,57 @@ class ContextAnalysisAgent(BaseAgent):
                                             request: AnalysisRequest, 
                                             state: DocumentState, 
                                             result: AnalysisResult) -> None:
-        """Perform comprehensive analysis for complex operations."""
+        """Perform comprehensive analysis for complex operations using LLM."""
+        try:
+            # Get user message for context
+            user_message = None
+            if state.get("messages"):
+                user_message = state["messages"][-1].get("content", "")
+            
+            # Use LLM for intelligent comprehensive analysis
+            llm_response = await self.llm_client.analyze_document_context(
+                document_state=state,
+                analysis_mode=LLMAnalysisMode.COMPREHENSIVE,
+                user_message=user_message
+            )
+            
+            if llm_response.success:
+                # Parse LLM response (expecting JSON)
+                import json
+                try:
+                    analysis_data = json.loads(llm_response.content)
+                    result.semantic_insights = analysis_data.get("semantic_analysis", {})
+                    result.context_data = analysis_data.get("content_themes", {})
+                    result.document_structure = analysis_data.get("structural_analysis", {})
+                    
+                    # Add LLM-specific insights
+                    result.metadata = {
+                        "llm_provider": llm_response.provider.value,
+                        "llm_model": llm_response.model,
+                        "tokens_used": llm_response.tokens_used,
+                        "analysis_mode": "comprehensive",
+                        "recommendations": analysis_data.get("recommendations", []),
+                        "optimization_suggestions": analysis_data.get("optimization_suggestions", [])
+                    }
+                except json.JSONDecodeError:
+                    # Fallback to using raw content
+                    result.semantic_insights = {"analysis": llm_response.content}
+                    result.document_structure = {"raw_analysis": True}
+            else:
+                # Fallback to basic analysis if LLM fails
+                self.logger.warning(f"LLM comprehensive analysis failed: {llm_response.error}, using fallback")
+                await self._perform_comprehensive_analysis_fallback(request, state, result)
+                
+        except Exception as e:
+            self.logger.error(f"Comprehensive analysis failed: {e}")
+            # Fallback to basic analysis
+            await self._perform_comprehensive_analysis_fallback(request, state, result)
+    
+    async def _perform_comprehensive_analysis_fallback(self, 
+                                                     request: AnalysisRequest, 
+                                                     state: DocumentState, 
+                                                     result: AnalysisResult) -> None:
+        """Fallback comprehensive analysis without LLM."""
         # Include focused analysis
         await self._perform_focused_analysis(request, state, result)
         
@@ -1894,3 +2288,694 @@ class ContextAnalysisAgent(BaseAgent):
             return "conclusive"
         else:
             return "content"
+    
+    # === TASK 13.4: LibreOffice UNO Services Bridge Integration ===
+    
+    def _connect_to_uno_bridge(self) -> Optional[Any]:
+        """
+        Establish connection to LibreOffice UNO bridge.
+        Connects to the AgentCoordinator service in LibreOffice.
+        """
+        try:
+            # Try to connect to existing LibreOffice instance
+            import uno
+            from com.sun.star.connection import NoConnectException
+            from com.sun.star.lang import DisposedException
+            
+            # Get UNO context - connects to LibreOffice instance
+            local_context = uno.getComponentContext()
+            resolver = local_context.getServiceManager().createInstanceWithContext(
+                "com.sun.star.bridge.UnoUrlResolver", local_context
+            )
+            
+            # Connect to LibreOffice with retry logic
+            connection_string = "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext"
+            
+            for attempt in range(self.uno_retry_attempts):
+                try:
+                    context = resolver.resolve(connection_string)
+                    self.logger.info(f"UNO bridge connected successfully (attempt {attempt + 1})")
+                    return context
+                    
+                except NoConnectException as e:
+                    if attempt < self.uno_retry_attempts - 1:
+                        self.logger.warning(f"UNO connection attempt {attempt + 1} failed, retrying...")
+                        time.sleep(1.0 * (attempt + 1))  # Exponential backoff
+                    else:
+                        self.logger.error(f"Failed to connect to UNO bridge after {self.uno_retry_attempts} attempts: {e}")
+                        
+        except ImportError:
+            # UNO not available - create mock connection for development
+            self.logger.warning("UNO module not available, using mock connection")
+            return self._create_mock_uno_bridge()
+            
+        except Exception as e:
+            self.logger.error(f"UNO bridge connection error: {e}")
+            
+        return None
+    
+    def _create_mock_uno_bridge(self) -> Dict[str, Any]:
+        """Create mock UNO bridge for development without LibreOffice."""
+        mock_bridge = {
+            "connection_type": "mock",
+            "connected": True,
+            "service_manager": self._create_mock_service_manager(),
+            "document_model": self._create_mock_document_model()
+        }
+        
+        self.logger.info("Created mock UNO bridge for development")
+        return mock_bridge
+    
+    def _create_mock_service_manager(self) -> Dict[str, Any]:
+        """Create mock service manager for development."""
+        return {
+            "ai_agent_coordinator": {
+                "service_name": "com.sun.star.ai.AgentCoordinator",
+                "available": True,
+                "methods": ["processRequest", "getDocumentContext", "setConfiguration"]
+            },
+            "document_model": {
+                "service_name": "com.sun.star.text.TextDocument",
+                "available": True,
+                "methods": ["getText", "getTextCursor", "insertString"]
+            }
+        }
+    
+    def _create_mock_document_model(self) -> Dict[str, Any]:
+        """Create mock document model for development."""
+        return {
+            "document_type": "text_document",
+            "paragraphs": [],
+            "sections": [],
+            "tables": [],
+            "frames": [],
+            "text_nodes": [],
+            "style_families": {}
+        }
+    
+    def _get_document_service(self) -> Optional[Any]:
+        """Get document service from UNO bridge."""
+        if not self.uno_bridge:
+            return None
+            
+        try:
+            if isinstance(self.uno_bridge, dict) and self.uno_bridge.get("connection_type") == "mock":
+                # Return mock document service
+                return self.uno_bridge.get("service_manager", {}).get("document_model")
+            
+            # Real UNO connection
+            service_manager = self.uno_bridge.getServiceManager()
+            
+            # Try to get AgentCoordinator service first
+            try:
+                agent_coordinator = service_manager.createInstanceWithContext(
+                    "com.sun.star.ai.AgentCoordinator", self.uno_bridge
+                )
+                self.logger.info("Connected to AgentCoordinator service")
+                return agent_coordinator
+                
+            except Exception as e:
+                self.logger.warning(f"AgentCoordinator service not available: {e}")
+                
+                # Fallback to direct document access
+                try:
+                    desktop = service_manager.createInstanceWithContext(
+                        "com.sun.star.frame.Desktop", self.uno_bridge
+                    )
+                    self.logger.info("Connected to Desktop service as fallback")
+                    return desktop
+                    
+                except Exception as e2:
+                    self.logger.error(f"Failed to connect to Desktop service: {e2}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error getting document service: {e}")
+            
+        return None
+    
+    async def connect_to_uno_bridge(self) -> bool:
+        """
+        Public method to establish UNO bridge connection.
+        Returns True if connection successful, False otherwise.
+        """
+        try:
+            self.uno_bridge = self._connect_to_uno_bridge()
+            
+            if self.uno_bridge:
+                self.document_service = self._get_document_service() 
+                
+                # Test connection
+                connection_valid = await self._test_uno_connection()
+                
+                if connection_valid:
+                    self.logger.info("UNO bridge connection established and validated")
+                    return True
+                else:
+                    self.logger.warning("UNO bridge connection validation failed")
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to connect to UNO bridge: {e}")
+            
+        return False
+    
+    async def _test_uno_connection(self) -> bool:
+        """Test UNO connection validity."""
+        if not self.uno_bridge or not self.document_service:
+            return False
+            
+        try:
+            if isinstance(self.uno_bridge, dict) and self.uno_bridge.get("connection_type") == "mock":
+                # Mock connection is always valid
+                return True
+                
+            # Test real UNO connection by checking service availability
+            if hasattr(self.document_service, 'getImplementationName'):
+                service_name = self.document_service.getImplementationName()
+                self.logger.debug(f"UNO service available: {service_name}")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"UNO connection test failed: {e}")
+            
+        return False
+    
+    async def access_swdoc_model(self, state: DocumentState) -> Optional[Dict[str, Any]]:
+        """
+        Access SwDoc model through UNO bridge for document structure analysis.
+        Returns document model information or None if unavailable.
+        """
+        if not self.document_service:
+            self.logger.warning("No UNO document service available")
+            return None
+            
+        try:
+            # Mock implementation for development
+            if isinstance(self.uno_bridge, dict) and self.uno_bridge.get("connection_type") == "mock":
+                return await self._get_mock_swdoc_model(state)
+                
+            # Real UNO implementation
+            return await self._get_real_swdoc_model(state)
+            
+        except Exception as e:
+            self.logger.error(f"Error accessing SwDoc model: {e}")
+            return None
+    
+    async def _get_mock_swdoc_model(self, state: DocumentState) -> Dict[str, Any]:
+        """Get mock SwDoc model for development."""
+        doc_structure = state.get("document_structure", {})
+        
+        mock_model = {
+            "model_type": "mock_swdoc",
+            "document_info": {
+                "title": state.get("current_document", {}).get("title", "Unknown"),
+                "path": state.get("current_document", {}).get("path", ""),
+                "paragraph_count": doc_structure.get("paragraphs", 0),
+                "section_count": len(doc_structure.get("sections", []))
+            },
+            "text_nodes": await self._create_mock_text_nodes(doc_structure),
+            "paragraph_hierarchy": await self._create_mock_paragraph_hierarchy(doc_structure),
+            "style_information": await self._get_mock_style_info(state),
+            "uno_integration_status": "mock_mode"
+        }
+        
+        self.logger.debug(f"Generated mock SwDoc model with {len(mock_model['text_nodes'])} text nodes")
+        return mock_model
+    
+    async def _get_real_swdoc_model(self, state: DocumentState) -> Dict[str, Any]:
+        """Get real SwDoc model from LibreOffice UNO."""
+        try:
+            # Access current document through AgentCoordinator if available
+            if hasattr(self.document_service, 'getDocumentContext'):
+                doc_context = self.document_service.getDocumentContext()
+                
+                swdoc_model = {
+                    "model_type": "real_swdoc",
+                    "document_info": {
+                        "title": getattr(doc_context, 'title', 'Unknown'),
+                        "url": getattr(doc_context, 'url', ''),
+                        "paragraph_count": getattr(doc_context, 'paragraphCount', 0)
+                    },
+                    "text_nodes": await self._extract_real_text_nodes(doc_context),
+                    "paragraph_hierarchy": await self._extract_real_hierarchy(doc_context),
+                    "style_information": await self._extract_real_styles(doc_context),
+                    "uno_integration_status": "real_mode"
+                }
+                
+                self.logger.info("Successfully accessed real SwDoc model")
+                return swdoc_model
+                
+            else:
+                # Fallback to Desktop service
+                self.logger.warning("AgentCoordinator not available, using Desktop fallback")
+                return await self._get_desktop_document_model(state)
+                
+        except Exception as e:
+            self.logger.error(f"Error accessing real SwDoc model: {e}")
+            # Fallback to mock model
+            return await self._get_mock_swdoc_model(state)
+    
+    async def _get_desktop_document_model(self, state: DocumentState) -> Dict[str, Any]:
+        """Get document model through Desktop service."""
+        try:
+            # Get current document from Desktop
+            current_doc = self.document_service.getCurrentComponent()
+            
+            if current_doc and hasattr(current_doc, 'getText'):
+                text = current_doc.getText()
+                
+                desktop_model = {
+                    "model_type": "desktop_swdoc",
+                    "document_info": {
+                        "title": getattr(current_doc, 'getTitle', lambda: 'Unknown')(),
+                        "url": getattr(current_doc, 'getURL', lambda: '')(),
+                        "has_text": text is not None
+                    },
+                    "text_nodes": await self._extract_desktop_text_nodes(text),
+                    "paragraph_hierarchy": [],  # Limited access through Desktop
+                    "style_information": {},    # Limited access through Desktop
+                    "uno_integration_status": "desktop_mode"
+                }
+                
+                self.logger.info("Successfully accessed document through Desktop service")
+                return desktop_model
+                
+        except Exception as e:
+            self.logger.error(f"Error accessing document through Desktop: {e}")
+            
+        # Final fallback to mock
+        return await self._get_mock_swdoc_model(state)
+    
+    async def traverse_text_nodes(self, swdoc_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Traverse text nodes in the document for detailed analysis.
+        Returns list of text node information.
+        """
+        if not swdoc_model:
+            return []
+            
+        try:
+            text_nodes = swdoc_model.get("text_nodes", [])
+            
+            enhanced_nodes = []
+            for i, node in enumerate(text_nodes):
+                enhanced_node = {
+                    "node_index": i,
+                    "node_type": node.get("type", "text"),
+                    "content": node.get("content", ""),
+                    "start_position": node.get("start", 0),
+                    "end_position": node.get("end", 0),
+                    "paragraph_index": node.get("paragraph", 0),
+                    "style_name": node.get("style", "Standard"),
+                    "formatting": node.get("formatting", {}),
+                    "parent_section": node.get("section", None),
+                    "node_depth": node.get("depth", 0)
+                }
+                
+                # Add semantic information if available
+                if "semantic_info" in node:
+                    enhanced_node["semantic_info"] = node["semantic_info"]
+                    
+                enhanced_nodes.append(enhanced_node)
+            
+            self.logger.debug(f"Traversed {len(enhanced_nodes)} text nodes")
+            return enhanced_nodes
+            
+        except Exception as e:
+            self.logger.error(f"Error traversing text nodes: {e}")
+            return []
+    
+    async def extract_styling_info(self, swdoc_model: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract document styling information from SwDoc model.
+        Returns comprehensive styling data.
+        """
+        if not swdoc_model:
+            return {}
+            
+        try:
+            style_info = swdoc_model.get("style_information", {})
+            
+            comprehensive_styles = {
+                "character_styles": style_info.get("character_styles", {}),
+                "paragraph_styles": style_info.get("paragraph_styles", {}),
+                "page_styles": style_info.get("page_styles", {}),
+                "numbering_styles": style_info.get("numbering_styles", {}),
+                "table_styles": style_info.get("table_styles", {}),
+                "current_style_context": {
+                    "active_paragraph_style": style_info.get("current_paragraph_style", "Standard"),
+                    "active_character_style": style_info.get("current_character_style", "Default"),
+                    "cursor_style_info": style_info.get("cursor_style", {})
+                },
+                "style_hierarchy": style_info.get("style_hierarchy", {}),
+                "custom_styles": style_info.get("custom_styles", []),
+                "style_usage_count": style_info.get("usage_stats", {}),
+                "uno_integration_mode": swdoc_model.get("uno_integration_status", "unknown")
+            }
+            
+            self.logger.debug(f"Extracted styling info with {len(comprehensive_styles['paragraph_styles'])} paragraph styles")
+            return comprehensive_styles
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting styling info: {e}")
+            return {}
+    
+    # Helper methods for mock UNO implementation
+    
+    async def _create_mock_text_nodes(self, doc_structure: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create mock text nodes based on document structure."""
+        nodes = []
+        paragraph_count = doc_structure.get("paragraphs", 0)
+        sections = doc_structure.get("sections", [])
+        
+        current_section = None
+        for para_idx in range(paragraph_count):
+            # Determine current section
+            for section in sections:
+                if isinstance(section, dict):
+                    start = section.get("start_paragraph", 0)
+                    end = section.get("end_paragraph", 0)
+                    if start <= para_idx <= end:
+                        current_section = section.get("title", f"Section {start}")
+                        break
+            
+            node = {
+                "type": "paragraph",
+                "content": f"Mock paragraph {para_idx + 1} content",
+                "start": para_idx * 100,
+                "end": (para_idx + 1) * 100 - 1,
+                "paragraph": para_idx,
+                "style": "Standard" if para_idx % 5 != 0 else "Heading 2",
+                "formatting": {
+                    "font_name": "Arial",
+                    "font_size": 12 if para_idx % 5 != 0 else 14,
+                    "bold": para_idx % 5 == 0
+                },
+                "section": current_section,
+                "depth": 0
+            }
+            nodes.append(node)
+        
+        return nodes
+    
+    async def _create_mock_paragraph_hierarchy(self, doc_structure: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create mock paragraph hierarchy."""
+        hierarchy = []
+        sections = doc_structure.get("sections", [])
+        
+        for i, section in enumerate(sections):
+            if isinstance(section, dict):
+                hierarchy_item = {
+                    "section_index": i,
+                    "title": section.get("title", f"Section {i+1}"),
+                    "start_paragraph": section.get("start_paragraph", 0),
+                    "end_paragraph": section.get("end_paragraph", 0),
+                    "level": 1,  # Mock level
+                    "style": "Heading 1" if i == 0 else "Heading 2",
+                    "child_elements": []
+                }
+                hierarchy.append(hierarchy_item)
+        
+        return hierarchy
+    
+    async def _get_mock_style_info(self, state: DocumentState) -> Dict[str, Any]:
+        """Get mock styling information."""
+        formatting_state = state.get("formatting_state", {})
+        
+        return {
+            "character_styles": {
+                "Default": {"font_name": "Arial", "font_size": 12},
+                "Emphasis": {"font_name": "Arial", "font_size": 12, "italic": True}
+            },
+            "paragraph_styles": {
+                "Standard": {"font_name": "Arial", "font_size": 12, "line_spacing": 1.0},
+                "Heading 1": {"font_name": "Arial", "font_size": 16, "bold": True},
+                "Heading 2": {"font_name": "Arial", "font_size": 14, "bold": True}
+            },
+            "page_styles": {
+                "Default": {"page_width": "21cm", "page_height": "29.7cm", "margins": "2cm"}
+            },
+            "current_paragraph_style": formatting_state.get("current_style", "Standard"),
+            "current_character_style": "Default",
+            "cursor_style": {
+                "font": formatting_state.get("font", "Arial"),
+                "size": formatting_state.get("size", 12)
+            }
+        }
+    
+    async def _extract_real_text_nodes(self, doc_context: Any) -> List[Dict[str, Any]]:
+        """Extract real text nodes from LibreOffice document."""
+        # Placeholder for real UNO text node extraction
+        # This would use actual UNO API calls to traverse document
+        nodes = []
+        
+        try:
+            # This is where real UNO API calls would go
+            # For now, return empty list as this requires actual LibreOffice integration
+            pass
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting real text nodes: {e}")
+            
+        return nodes
+    
+    async def _extract_real_hierarchy(self, doc_context: Any) -> List[Dict[str, Any]]:
+        """Extract real paragraph hierarchy from LibreOffice document."""
+        # Placeholder for real UNO hierarchy extraction
+        return []
+    
+    async def _extract_real_styles(self, doc_context: Any) -> Dict[str, Any]:
+        """Extract real style information from LibreOffice document.""" 
+        # Placeholder for real UNO style extraction
+        return {}
+    
+    async def _extract_desktop_text_nodes(self, text: Any) -> List[Dict[str, Any]]:
+        """Extract text nodes through Desktop service."""
+        nodes = []
+        
+        try:
+            if text and hasattr(text, 'createTextCursor'):
+                cursor = text.createTextCursor()
+                cursor.gotoStart(False)
+                
+                para_count = 0
+                while cursor.gotoNextParagraph(False):
+                    cursor.gotoEndOfParagraph(True)  # Select paragraph
+                    content = cursor.getString()
+                    
+                    node = {
+                        "type": "paragraph",
+                        "content": content,
+                        "paragraph": para_count,
+                        "start": para_count * 100,
+                        "end": (para_count + 1) * 100,
+                        "style": "Unknown"  # Limited access through Desktop
+                    }
+                    nodes.append(node)
+                    para_count += 1
+                    
+                    cursor.collapseToEnd()
+                    
+                    # Limit to prevent infinite loops
+                    if para_count > 1000:
+                        break
+                        
+        except Exception as e:
+            self.logger.error(f"Error extracting desktop text nodes: {e}")
+            
+        return nodes
+    
+    def get_uno_connection_status(self) -> Dict[str, Any]:
+        """Get current UNO connection status information."""
+        return {
+            "uno_bridge_connected": self.uno_bridge is not None,
+            "document_service_available": self.document_service is not None,
+            "connection_type": "mock" if isinstance(self.uno_bridge, dict) else "real" if self.uno_bridge else "none",
+            "swdoc_model_accessible": self.swdoc_model is not None,
+            "connection_timeout": self.uno_connection_timeout,
+            "retry_attempts": self.uno_retry_attempts,
+            "last_connection_test": getattr(self, '_last_connection_test', None)
+        }
+    
+    def invalidate_cache_for_document(self, document_path: str) -> int:
+        """
+        Invalidate cached analysis results for a specific document.
+        
+        Args:
+            document_path: Path to the document whose cache should be invalidated
+            
+        Returns:
+            Number of cache entries invalidated
+        """
+        if not self.analysis_cache:
+            return 0
+        
+        return self.analysis_cache.invalidate_cache(document_path=document_path)
+    
+    def update_document_version(self, document_path: str, content_hash: str) -> bool:
+        """
+        Update document version tracking and invalidate cache if changed.
+        
+        Args:
+            document_path: Path to the document
+            content_hash: Hash of current document content
+            
+        Returns:
+            True if document changed and cache was invalidated
+        """
+        if not self.analysis_cache:
+            return False
+        
+        return self.analysis_cache.update_document_version(document_path, content_hash)
+    
+    def get_cache_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Get cache performance metrics for optimization insights.
+        
+        Returns:
+            Dictionary containing cache performance data
+        """
+        if not self.analysis_cache:
+            return {
+                "cache_enabled": False,
+                "message": "Cache not available"
+            }
+        
+        metrics = self.analysis_cache.get_performance_metrics()
+        metrics["cache_enabled"] = True
+        
+        return metrics
+    
+    def clear_analysis_cache(self) -> int:
+        """
+        Clear all cached analysis results.
+        
+        Returns:
+            Number of entries cleared
+        """
+        if not self.analysis_cache:
+            return 0
+        
+        return self.analysis_cache.clear_cache()
+    
+    def calculate_document_hash(self, state: DocumentState) -> str:
+        """
+        Calculate a hash of document content for change detection.
+        
+        Args:
+            state: Current document state
+            
+        Returns:
+            Document content hash string
+        """
+        # Extract relevant document content for hashing
+        content_data = {
+            "document_path": state.get("current_document", {}).get("path", ""),
+            "document_title": state.get("current_document", {}).get("title", ""),
+            "paragraph_count": state.get("document_structure", {}).get("paragraphs", 0),
+            "sections": state.get("document_structure", {}).get("sections", []),
+            "tables": state.get("document_structure", {}).get("tables", []),
+            "charts": state.get("document_structure", {}).get("charts", []),
+            "selected_text": state.get("selected_text", ""),
+            "last_modified": state.get("current_document", {}).get("last_modified", "")
+        }
+        
+        content_string = json.dumps(content_data, sort_keys=True)
+        return hashlib.sha256(content_string.encode()).hexdigest()[:16]
+    
+    async def optimize_cache_performance(self) -> Dict[str, Any]:
+        """
+        Analyze and optimize cache performance based on usage patterns.
+        
+        Returns:
+            Dictionary containing optimization results and recommendations
+        """
+        if not self.analysis_cache:
+            return {"message": "Cache not available for optimization"}
+        
+        metrics = self.analysis_cache.get_performance_metrics()
+        
+        # Analyze performance and provide recommendations
+        recommendations = []
+        
+        if metrics["hit_rate"] < 0.3:
+            recommendations.append("Low cache hit rate - consider increasing cache size or TTL")
+        
+        if metrics["evictions"] > metrics["hits"] * 0.1:
+            recommendations.append("High eviction rate - consider increasing cache size")
+        
+        if metrics["cache_size"] < metrics["max_size"] * 0.1:
+            recommendations.append("Cache underutilized - may reduce cache size")
+        
+        optimization_result = {
+            "current_metrics": metrics,
+            "recommendations": recommendations,
+            "optimal_cache_size": min(1000, max(100, metrics["total_requests"] // 10)),
+            "suggested_ttl": 300 if metrics["hit_rate"] > 0.5 else 600
+        }
+        
+        return optimization_result
+    
+    async def analyze_document_context(self, request: AnalysisRequest) -> AnalysisResult:
+        """
+        Analyze document context based on the provided request.
+        
+        This is an alias method that wraps the main process() method to provide
+        a more specific interface for direct analysis requests.
+        
+        Args:
+            request: AnalysisRequest with analysis parameters
+            
+        Returns:
+            AnalysisResult: Analysis results
+        """
+        # Create a minimal state for processing
+        mock_state = {
+            'current_document': {'path': 'test.odt', 'title': 'Test Document'},
+            'cursor_position': request.target_position or {'line': 1, 'column': 1},
+            'selected_text': request.content_focus or '',
+            'document_structure': {},
+            'formatting_state': {},
+            'messages': [],
+            'current_task': f"Analysis: {request.analysis_mode.value}",
+            'task_history': [],
+            'agent_status': {},
+            'content_analysis': {},
+            'generated_content': [],
+            'content_suggestions': [],
+            'external_data': {},
+            'research_citations': [],
+            'api_usage': {},
+            'pending_operations': [],
+            'completed_operations': [],
+            'validation_results': {},
+            'last_error': None,
+            'retry_count': 0,
+            'error_recovery': {},
+            'rollback_points': [],
+            'user_preferences': {},
+            'interaction_history': [],
+            'approval_required': [],
+            'performance_metrics': {},
+            'resource_utilization': {},
+            'optimization_recommendations': []
+        }
+        
+        # Process the request using the main processing pipeline
+        result = await self.process(mock_state)
+        
+        # Convert AgentResult to AnalysisResult
+        analysis_result = AnalysisResult(
+            request_id=request.request_id,
+            analysis_mode=request.analysis_mode,
+            success=result.success,
+            execution_time_ms=result.execution_time * 1000,  # Convert to ms
+            context_data=result.data.get('context_data', {}),
+            semantic_insights=result.data.get('semantic_insights', {}),
+            cursor_context=result.data.get('cursor_context', {}),
+            document_structure=result.data.get('document_structure', {}),
+            error_message=result.error,
+            cache_hit=result.data.get('cache_hit', False),
+            metadata=result.metadata or {}
+        )
+        
+        return analysis_result

@@ -28,6 +28,9 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union, Set, Callable
 import logging
 from concurrent.futures import ThreadPoolExecutor
+
+# Import LLM client for intelligent routing
+from llm_client import get_llm_client
 import json
 
 # Import base agent framework
@@ -39,6 +42,17 @@ from .base import (
     ValidationResult,
     ToolCallResult
 )
+
+# Import specialized agents for integration
+try:
+    from .validation import ValidationAgent, ValidationRequest, ValidationLevel, ValidationCategory
+    from .execution import ExecutionAgent, ExecutionOperation, OperationType, OperationPriority
+    AGENTS_AVAILABLE = True
+except ImportError:
+    # Fallback for development without all agents
+    ValidationAgent = None
+    ExecutionAgent = None
+    AGENTS_AVAILABLE = False
 
 # Import LangGraph types
 try:
@@ -126,6 +140,9 @@ class DocumentMasterAgent(BaseAgent):
         self.agent_capabilities: Dict[str, List[AgentCapability]] = {}
         self.agent_performance_history: Dict[str, List[float]] = {}
         
+        # Initialize specialized agents
+        self._initialize_specialized_agents()
+        
         # Request analysis patterns
         self.simple_patterns = self._initialize_simple_patterns()
         self.moderate_patterns = self._initialize_moderate_patterns()
@@ -145,6 +162,9 @@ class DocumentMasterAgent(BaseAgent):
             thread_name_prefix=f"DocumentMaster-{agent_id}"
         )
         
+        # Initialize LLM client for intelligent routing
+        self.llm_client = get_llm_client()
+        
         # Result aggregation
         self.result_aggregators: Dict[str, Callable] = {
             "simple": self._aggregate_simple_results,
@@ -153,6 +173,28 @@ class DocumentMasterAgent(BaseAgent):
         }
         
         self.logger.info(f"DocumentMasterAgent {agent_id} initialized with orchestration capabilities")
+    
+    def _initialize_specialized_agents(self):
+        """Initialize and register specialized agents"""
+        if not AGENTS_AVAILABLE:
+            self.logger.warning("Specialized agents not available, skipping initialization")
+            return
+        
+        try:
+            # Initialize ValidationAgent
+            if ValidationAgent:
+                validation_agent = ValidationAgent("validation_agent")
+                self.register_agent(validation_agent)
+                self.logger.info("Registered ValidationAgent")
+            
+            # Initialize ExecutionAgent
+            if ExecutionAgent:
+                execution_agent = ExecutionAgent("execution_agent")
+                self.register_agent(execution_agent)
+                self.logger.info("Registered ExecutionAgent")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize specialized agents: {e}")
     
     def _initialize_simple_patterns(self) -> Dict[str, List[str]]:
         """Initialize patterns for simple operations (1-2 seconds)."""
@@ -594,25 +636,43 @@ class DocumentMasterAgent(BaseAgent):
     
     def _get_moderate_workflow_agents(self, operation_type: str) -> List[str]:
         """Get agent list for moderate workflow (focused agents)."""
+        base_agents = []
+        
         if "content" in operation_type or "writing" in operation_type:
-            return ["context_analysis", "content_generation", "formatting", "validation", "execution"]
+            base_agents = ["context_analysis", "content_generation", "formatting"]
         elif "research" in operation_type:
-            return ["context_analysis", "data_integration", "content_generation", "validation", "execution"]
+            base_agents = ["context_analysis", "data_integration", "content_generation"]
         elif "styling" in operation_type or "format" in operation_type:
-            return ["context_analysis", "formatting", "validation", "execution"]
+            base_agents = ["context_analysis", "formatting"]
         else:
-            return ["context_analysis", "content_generation", "formatting", "validation", "execution"]
+            base_agents = ["context_analysis", "content_generation", "formatting"]
+        
+        # Add validation and execution agents if available
+        if AGENTS_AVAILABLE:
+            if "validation_agent" in self.registered_agents:
+                base_agents.append("validation_agent")
+            if "execution_agent" in self.registered_agents:
+                base_agents.append("execution_agent")
+        
+        return base_agents
     
     def _get_complex_workflow_agents(self, operation_type: str) -> List[str]:
         """Get agent list for complex workflow (full orchestration)."""
-        return [
+        base_agents = [
             "context_analysis",
             "data_integration", 
             "content_generation",
-            "formatting",
-            "validation",
-            "execution"
+            "formatting"
         ]
+        
+        # Add validation and execution agents if available
+        if AGENTS_AVAILABLE:
+            if "validation_agent" in self.registered_agents:
+                base_agents.append("validation_agent")
+            if "execution_agent" in self.registered_agents:
+                base_agents.append("execution_agent")
+        
+        return base_agents
     
     def _get_complex_parallel_workflow(self, operation_type: str) -> tuple[List[str], List[List[str]]]:
         """Get agents and parallel groups for complex parallel workflow."""
@@ -620,10 +680,15 @@ class DocumentMasterAgent(BaseAgent):
             "context_analysis",
             "data_integration",
             "content_generation", 
-            "formatting",
-            "validation",
-            "execution"
+            "formatting"
         ]
+        
+        # Add validation and execution agents if available
+        if AGENTS_AVAILABLE:
+            if "validation_agent" in self.registered_agents:
+                all_agents.append("validation_agent")
+            if "execution_agent" in self.registered_agents:
+                all_agents.append("execution_agent")
         
         # Define parallel execution groups
         parallel_groups = [
@@ -857,14 +922,16 @@ class DocumentMasterAgent(BaseAgent):
                                            plan: OperationPlan, 
                                            state: DocumentState, 
                                            message: Optional[BaseMessage]) -> AgentResult:
-        """Execute fully orchestrated workflow."""
+        """Execute fully orchestrated workflow with validation and execution."""
         self.logger.info(f"Executing orchestrated workflow: {plan.required_agents}")
         
         results = []
         current_state = state
         
-        # Execute all agents in sequence with full coordination
-        for agent_id in plan.required_agents:
+        # Phase 1: Execute specialist agents (Context, Content, Formatting, Data)
+        specialist_agents = [aid for aid in plan.required_agents if aid not in ['validation_agent', 'execution_agent']]
+        
+        for agent_id in specialist_agents:
             if agent_id not in self.registered_agents:
                 result = AgentResult(
                     agent_id=agent_id,
@@ -890,7 +957,141 @@ class DocumentMasterAgent(BaseAgent):
                     results[-1] = fallback_result  # Replace failed result
                     current_state = self._merge_state_updates(current_state, fallback_result.state_updates)
         
+        # Phase 2: Validation (if ValidationAgent is available and required)
+        if 'validation_agent' in self.registered_agents:
+            validation_result = await self._execute_validation_phase(current_state, message)
+            results.append(validation_result)
+            
+            if not validation_result.success:
+                self.logger.warning("Validation failed, stopping workflow")
+                return self._aggregate_complex_results(results, plan)
+            
+            # Check if approval is required
+            if (validation_result.result and 
+                validation_result.result.get('approval_required', False)):
+                self.logger.info("Operation requires approval, pausing workflow")
+                # In a real implementation, this would trigger user approval workflow
+                current_state['approval_required'] = True
+                current_state['approval_pending'] = True
+            
+            # Update state with validation results
+            if validation_result.state_updates:
+                current_state = self._merge_state_updates(current_state, validation_result.state_updates)
+        
+        # Phase 3: Execution (if ExecutionAgent is available and validation passed)
+        if ('execution_agent' in self.registered_agents and 
+            not current_state.get('approval_pending', False)):
+            execution_result = await self._execute_execution_phase(current_state, message)
+            results.append(execution_result)
+            
+            # Update state with execution results
+            if execution_result.state_updates:
+                current_state = self._merge_state_updates(current_state, execution_result.state_updates)
+        
         return self._aggregate_complex_results(results, plan)
+    
+    async def _execute_validation_phase(self, state: DocumentState, message: Optional[BaseMessage]) -> AgentResult:
+        """Execute validation phase using ValidationAgent"""
+        try:
+            validation_agent = self.registered_agents['validation_agent']
+            
+            # Create validation request based on current state
+            validation_level = self._determine_validation_level(state)
+            categories = self._determine_validation_categories(state)
+            
+            # Execute validation through agent
+            result = await validation_agent.execute_with_monitoring(state, message)
+            
+            self.logger.info(f"Validation phase completed: success={result.success}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Validation phase failed: {e}")
+            return AgentResult(
+                agent_id="validation_agent",
+                success=False,
+                result={},
+                error=f"Validation phase error: {str(e)}",
+                execution_time=0
+            )
+    
+    async def _execute_execution_phase(self, state: DocumentState, message: Optional[BaseMessage]) -> AgentResult:
+        """Execute operations using ExecutionAgent"""
+        try:
+            execution_agent = self.registered_agents['execution_agent']
+            
+            # Begin undo group for the operation
+            if hasattr(execution_agent, 'undo_redo_manager'):
+                operation_name = state.get('current_task', 'Document Operation')
+                execution_agent.undo_redo_manager.begin_undo_group(operation_name)
+            
+            # Execute operations through agent
+            result = await execution_agent.execute_with_monitoring(state, message)
+            
+            # End undo group
+            if hasattr(execution_agent, 'undo_redo_manager'):
+                execution_agent.undo_redo_manager.end_undo_group()
+            
+            self.logger.info(f"Execution phase completed: success={result.success}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Execution phase failed: {e}")
+            return AgentResult(
+                agent_id="execution_agent",
+                success=False,
+                result={},
+                error=f"Execution phase error: {str(e)}",
+                execution_time=0
+            )
+    
+    def _determine_validation_level(self, state: DocumentState) -> 'ValidationLevel':
+        """Determine appropriate validation level based on state"""
+        if not AGENTS_AVAILABLE:
+            return None
+        
+        # Check for financial content
+        external_data = state.get('external_data', {})
+        if 'financial_data' in external_data:
+            return ValidationLevel.COMPREHENSIVE
+        
+        # Check for complex operations
+        pending_ops = state.get('pending_operations', [])
+        if len(pending_ops) > 3:
+            return ValidationLevel.COMPREHENSIVE
+        
+        # Check for simple operations
+        current_task = state.get('current_task', '').lower()
+        if any(keyword in current_task for keyword in ['quick', 'fast', 'simple']):
+            return ValidationLevel.FAST
+        
+        return ValidationLevel.STANDARD
+    
+    def _determine_validation_categories(self, state: DocumentState) -> Set['ValidationCategory']:
+        """Determine validation categories based on state"""
+        if not AGENTS_AVAILABLE:
+            return set()
+        
+        categories = set()
+        
+        # Always check content accuracy
+        categories.add(ValidationCategory.CONTENT_ACCURACY)
+        
+        # Check for formatting operations
+        pending_ops = state.get('pending_operations', [])
+        if any(op.get('type', '').startswith('format') for op in pending_ops):
+            categories.add(ValidationCategory.FORMATTING_CONSISTENCY)
+        
+        # Check for financial content
+        external_data = state.get('external_data', {})
+        if 'financial_data' in external_data:
+            categories.add(ValidationCategory.FINANCIAL_COMPLIANCE)
+        
+        # Check for accessibility requirements
+        if state.get('user_preferences', {}).get('accessibility_required', False):
+            categories.add(ValidationCategory.ACCESSIBILITY)
+        
+        return categories
     
     async def _execute_fallback_strategy(self, 
                                        strategy: str, 
@@ -1140,3 +1341,17 @@ class DocumentMasterAgent(BaseAgent):
         
         # Call parent cleanup
         super().cleanup()
+    
+    async def _analyze_user_request(self, user_request: str, state: DocumentState) -> RequestAnalysis:
+        """
+        Alias for _analyze_request method to maintain backward compatibility.
+        
+        Args:
+            user_request: Raw user request text
+            state: Current document state for context
+            
+        Returns:
+            RequestAnalysis: Comprehensive analysis of the request
+        """
+        # Call the async version directly
+        return await self._analyze_request(user_request, state)

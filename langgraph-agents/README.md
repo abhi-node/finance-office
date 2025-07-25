@@ -49,7 +49,7 @@ pip install -r requirements.txt
 ```bash
 export OPENAI_API_KEY="your_openai_key"
 export ANTHROPIC_API_KEY="your_anthropic_key"  
-export ALPHA_VANTAGE_API_KEY="your_alphavantage_key"
+# Alpha Vantage integration removed - using Yahoo Finance as default
 ```
 
 3. Optional performance tuning:

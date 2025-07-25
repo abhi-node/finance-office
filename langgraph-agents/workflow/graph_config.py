@@ -734,6 +734,23 @@ def create_workflow_manager(config: Optional[WorkflowConfig] = None) -> LangGrap
     """
     return LangGraphWorkflowManager(config)
 
+def create_langgraph_workflow(config: Optional[WorkflowConfig] = None):
+    """
+    Create and configure a LangGraph workflow for the multi-agent system.
+    
+    This function creates the complete workflow with all agents and routing logic.
+    
+    Args:
+        config: Optional workflow configuration
+        
+    Returns:
+        Configured workflow manager
+    """
+    if config is None:
+        config = DEFAULT_WORKFLOW_CONFIG
+    
+    return create_workflow_manager(config)
+
 # Default workflow configuration
 DEFAULT_WORKFLOW_CONFIG = WorkflowConfig(
     enable_parallel_execution=True,

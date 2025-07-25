@@ -11,6 +11,14 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, just use system environment variables
+    pass
+
 @dataclass
 class PerformanceConfig:
     """Performance optimization settings for different operation types."""
@@ -38,7 +46,6 @@ class APIConfig:
     """External API integration configuration."""
     
     # Financial data APIs
-    alpha_vantage_key: Optional[str] = None
     yahoo_finance_enabled: bool = True
     
     # AI model configuration  
@@ -114,7 +121,6 @@ class ConfigManager:
         )
         
         api_config = APIConfig(
-            alpha_vantage_key=os.getenv("ALPHA_VANTAGE_API_KEY"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             default_model=os.getenv("AGENT_DEFAULT_MODEL", "gpt-3.5-turbo")
