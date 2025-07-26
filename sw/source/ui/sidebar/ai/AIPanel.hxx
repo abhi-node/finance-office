@@ -27,6 +27,11 @@
 #include "AITextInput.hxx"
 #include <functional>
 
+// JSON parsing for enhanced response format (Phase 7)
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <sstream>
+
 namespace sw::sidebar {
 
 /**
@@ -155,6 +160,20 @@ private:
     void sendMessageToBackend(const QueuedMessage& rMessage);
     void handleBackendResponse(const OUString& rsMessageId, const OUString& rsResponse);
     void handleBackendError(const OUString& rsMessageId, const OUString& rsError);
+    
+    /**
+     * Parse and display enhanced response format (Phase 7)
+     * Display both agent content and operation confirmations per AGENT_SYSTEM_SPECIFICATION.md
+     */
+    void parseAndDisplayEnhancedResponse(const OUString& rsResponse);
+    
+    /**
+     * Helper methods for enhanced response display (Phase 7)
+     */
+    OUString formatOperationConfirmations(const boost::property_tree::ptree& rOperations, bool bSuccess, double fExecutionTime) const;
+    OUString getOperationDescription(const std::string& sType) const;
+    OUString formatMetadataSummary(const boost::property_tree::ptree& rMetadata) const;
+    OUString formatErrorDetails(const boost::property_tree::ptree& rErrorDetails) const;
     void resendMessage(sal_Int32 nChatMessageId);
     void handleOperationCancellation(const OUString& rsMessageId, const OUString& rsReason);
     OUString generateOperationId();

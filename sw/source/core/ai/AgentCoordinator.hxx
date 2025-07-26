@@ -171,6 +171,12 @@ private:
     OUString processComplexRequest(const OUString& rsRequest, const css::uno::Any& rContext);
     
     /**
+     * Unified request processing via LangGraph agents
+     * Sends all requests to single agent endpoint for intelligent routing
+     */
+    OUString processUnifiedRequest(const OUString& rsRequest, const css::uno::Any& rContext, const OUString& rsRequestId);
+    
+    /**
      * Document context extraction and management
      * Extracts cursor position, selection, document structure for agent processing
      */

@@ -1,0 +1,843 @@
+COMPREHENSIVE AGENT FUNCTION TEST RESULTS
+================================================================================
+Test executed at: 2025-07-26T00:20:56.751180
+Total tests: 10
+Server URL: http://127.0.0.1:8000
+
+SUMMARY STATISTICS:
+----------------------------------------
+Successful requests: 10
+Failed requests: 0
+Success rate: 100.0%
+Average response time: 2960.4ms
+
+DETAILED TEST RESULTS:
+================================================================================
+
+TEST 1: simple_text_insertion
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:11.048687
+Status Code: 200
+Execution Time: 5951.5ms
+
+REQUEST:
+{
+  "request": "Insert the text 'Hello World' at the current cursor position",
+  "request_id": "test_simple_text_insertion_1753507205",
+  "context": {
+    "cursor_position": {
+      "line": 5,
+      "column": 10
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 3,
+      "page_count": 1,
+      "word_count": 25
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_simple_text_insertion"
+}
+
+RESPONSE:
+{
+  "request_id": "test_simple_text_insertion_1753507205",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 5944.691896438599,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 5944.691896438599,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 5944.691896438599,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 35,
+    "server_uptime_seconds": 5359.6044092178345
+  }
+}
+============================================================
+
+TEST 2: financial_table_creation
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:14.299319
+Status Code: 200
+Execution Time: 1245.3ms
+
+REQUEST:
+{
+  "request": "Create a quarterly financial summary table with Q1-Q4 2024 revenue data, including columns for Quarter, Revenue, Growth %, and Notes",
+  "request_id": "test_financial_table_creation_1753507213",
+  "context": {
+    "cursor_position": {
+      "line": 10,
+      "column": 1
+    },
+    "selected_text": "Financial Summary",
+    "document_structure": {
+      "paragraph_count": 15,
+      "page_count": 2,
+      "word_count": 450
+    },
+    "formatting_state": {
+      "has_selection": true,
+      "current_style": "Heading 2"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_financial_table_creation"
+}
+
+RESPONSE:
+{
+  "request_id": "test_financial_table_creation_1753507213",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 1242.3250675201416,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 1242.3250675201416,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 1242.3250675201416,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 36,
+    "server_uptime_seconds": 5362.858870983124
+  }
+}
+============================================================
+
+TEST 3: document_formatting
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:18.734145
+Status Code: 200
+Execution Time: 2429.6ms
+
+REQUEST:
+{
+  "request": "Apply professional business formatting to the selected text: bold, 14pt font, center alignment",
+  "request_id": "test_document_formatting_1753507216",
+  "context": {
+    "cursor_position": {
+      "line": 3,
+      "column": 5
+    },
+    "selected_text": "QUARTERLY REPORT 2024",
+    "document_structure": {
+      "paragraph_count": 8,
+      "page_count": 1,
+      "word_count": 120
+    },
+    "formatting_state": {
+      "has_selection": true,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_document_formatting"
+}
+
+RESPONSE:
+{
+  "request_id": "test_document_formatting_1753507216",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 2423.798084259033,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 2423.798084259033,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 2423.798084259033,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 37,
+    "server_uptime_seconds": 5367.292756080627
+  }
+}
+============================================================
+
+TEST 4: complex_document_analysis
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:22.471574
+Status Code: 200
+Execution Time: 1734.6ms
+
+REQUEST:
+{
+  "request": "Analyze the current document structure and suggest improvements for readability, including adding headers, bullet points, and proper spacing",
+  "request_id": "test_complex_document_analysis_1753507220",
+  "context": {
+    "cursor_position": {
+      "line": 1,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 25,
+      "page_count": 3,
+      "word_count": 850
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_complex_document_analysis"
+}
+
+RESPONSE:
+{
+  "request_id": "test_complex_document_analysis_1753507220",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 1730.6287288665771,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 1730.6287288665771,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 1730.6287288665771,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 38,
+    "server_uptime_seconds": 5371.030873060226
+  }
+}
+============================================================
+
+TEST 5: data_integration_request
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:27.712981
+Status Code: 200
+Execution Time: 3240.3ms
+
+REQUEST:
+{
+  "request": "Insert current stock market data for AAPL, GOOGL, and MSFT in a formatted table with price, change, and volume",
+  "request_id": "test_data_integration_request_1753507224",
+  "context": {
+    "cursor_position": {
+      "line": 12,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 10,
+      "page_count": 1,
+      "word_count": 200
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_data_integration_request"
+}
+
+RESPONSE:
+{
+  "request_id": "test_data_integration_request_1753507224",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 3234.4071865081787,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 3234.4071865081787,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 3234.4071865081787,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 39,
+    "server_uptime_seconds": 5376.271657943726
+  }
+}
+============================================================
+
+TEST 6: template_application
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:33.260873
+Status Code: 200
+Execution Time: 3542.7ms
+
+REQUEST:
+{
+  "request": "Apply a professional business letter template with company header, date, and signature blocks",
+  "request_id": "test_template_application_1753507229",
+  "context": {
+    "cursor_position": {
+      "line": 1,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 1,
+      "page_count": 1,
+      "word_count": 5
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_template_application"
+}
+
+RESPONSE:
+{
+  "request_id": "test_template_application_1753507229",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 3540.264129638672,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 3540.264129638672,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 3540.264129638672,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 40,
+    "server_uptime_seconds": 5381.820331096649
+  }
+}
+============================================================
+
+TEST 7: chart_creation
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:36.810352
+Status Code: 200
+Execution Time: 1544.3ms
+
+REQUEST:
+{
+  "request": "Create a bar chart showing monthly sales data from January to June 2024 with values: Jan $10k, Feb $12k, Mar $15k, Apr $13k, May $18k, Jun $20k",
+  "request_id": "test_chart_creation_1753507235",
+  "context": {
+    "cursor_position": {
+      "line": 20,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 18,
+      "page_count": 2,
+      "word_count": 600
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_chart_creation"
+}
+
+RESPONSE:
+{
+  "request_id": "test_chart_creation_1753507235",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 1542.0498847961426,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 1542.0498847961426,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 1542.0498847961426,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 41,
+    "server_uptime_seconds": 5385.36988902092
+  }
+}
+============================================================
+
+TEST 8: multilingual_content
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:42.435710
+Status Code: 200
+Execution Time: 3620.1ms
+
+REQUEST:
+{
+  "request": "Insert a bilingual greeting in English and Spanish: 'Welcome to our annual report / Bienvenidos a nuestro informe anual'",
+  "request_id": "test_multilingual_content_1753507238",
+  "context": {
+    "cursor_position": {
+      "line": 2,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 5,
+      "page_count": 1,
+      "word_count": 75
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "secondary_language": "es-ES",
+    "currency": "USD"
+  },
+  "session_id": "test_session_multilingual_content"
+}
+
+RESPONSE:
+{
+  "request_id": "test_multilingual_content_1753507238",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 3612.7219200134277,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 3612.7219200134277,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 3612.7219200134277,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 42,
+    "server_uptime_seconds": 5390.9928159713745
+  }
+}
+============================================================
+
+TEST 9: error_handling_test
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:47.914901
+Status Code: 200
+Execution Time: 3475.4ms
+
+REQUEST:
+{
+  "request": "This is an intentionally invalid request with malformed data requirements that should trigger error handling",
+  "request_id": "test_error_handling_test_1753507244",
+  "context": {
+    "cursor_position": {
+      "line": -1,
+      "column": -1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 0,
+      "page_count": 0,
+      "word_count": 0
+    },
+    "formatting_state": {
+      "has_selection": null
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_error_handling_test"
+}
+
+RESPONSE:
+{
+  "request_id": "test_error_handling_test_1753507244",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 3468.2281017303467,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 3468.2281017303467,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 3468.2281017303467,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 43,
+    "server_uptime_seconds": 5396.473237037659
+  }
+}
+============================================================
+
+TEST 10: performance_stress_test
+------------------------------------------------------------
+Timestamp: 2025-07-26T00:20:52.738267
+Status Code: 200
+Execution Time: 2820.3ms
+
+REQUEST:
+{
+  "request": "Create a comprehensive 50-page business report with executive summary, financial analysis, market trends, competitive analysis, risk assessment, recommendations, appendices, charts, tables, and formatted sections with professional styling throughout",
+  "request_id": "test_performance_stress_test_1753507249",
+  "context": {
+    "cursor_position": {
+      "line": 1,
+      "column": 1
+    },
+    "selected_text": "",
+    "document_structure": {
+      "paragraph_count": 1,
+      "page_count": 1,
+      "word_count": 0
+    },
+    "formatting_state": {
+      "has_selection": false,
+      "current_style": "Normal"
+    }
+  },
+  "user_preferences": {
+    "language": "en-US",
+    "currency": "USD",
+    "date_format": "MM/DD/YYYY"
+  },
+  "session_id": "test_session_performance_stress_test"
+}
+
+RESPONSE:
+{
+  "request_id": "test_performance_stress_test_1753507249",
+  "success": true,
+  "response_content": "Request processed successfully.",
+  "operations": [],
+  "operation_summaries": [],
+  "complexity_detected": "unknown",
+  "workflow_path": "unknown",
+  "agents_used": [],
+  "execution_time_ms": 2815.0062561035156,
+  "content_changes": {},
+  "formatting_changes": {},
+  "warnings": [],
+  "approval_required": [],
+  "validation_results": {},
+  "performance_metrics": {
+    "execution_time_ms": 2815.0062561035156,
+    "complexity_detected": null,
+    "performance_target_met": false,
+    "analysis_confidence": 0.0,
+    "agents_count": 0
+  },
+  "optimization_recommendations": [],
+  "error_context": null,
+  "recovery_options": [],
+  "metadata": {
+    "server_processing_time_ms": 2815.0062561035156,
+    "bridge_integration": "langgraph",
+    "agent_orchestration_enabled": true,
+    "request_count": 44,
+    "server_uptime_seconds": 5401.296903848648
+  }
+}
+============================================================
+
+
+SERVER LOGS:
+================================================================================
+[00:20:05.097] /Users/abhijithbalagurusamy/Documents/GauntletAI/finance-office/langgraph-agents/venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+[00:20:05.097] * 'schema_extra' has been renamed to 'json_schema_extra'
+[00:20:05.097] warnings.warn(message, UserWarning)
+[00:20:05.097] 2025-07-26 00:19:57,829 - __main__ - INFO - LangGraphAgentProcessor created - awaiting initialization
+[00:20:05.097] /Users/abhijithbalagurusamy/Documents/GauntletAI/finance-office/langgraph-agents/ai_agent_server.py:547: DeprecationWarning:
+[00:20:05.097] on_event is deprecated, use lifespan event handlers instead.
+[00:20:05.097] 
+[00:20:05.097] Read more about it in the
+[00:20:05.097] [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+[00:20:05.097] 
+[00:20:05.097] @app.on_event("startup")
+[00:20:05.097] /Users/abhijithbalagurusamy/Documents/GauntletAI/finance-office/langgraph-agents/ai_agent_server.py:558: DeprecationWarning:
+[00:20:05.097] on_event is deprecated, use lifespan event handlers instead.
+[00:20:05.097] 
+[00:20:05.097] Read more about it in the
+[00:20:05.097] [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+[00:20:05.097] 
+[00:20:05.097] @app.on_event("shutdown")
+[00:20:05.097] 2025-07-26 00:19:57,864 - ai_agent_server - INFO - LangGraphAgentProcessor created - awaiting initialization
+[00:20:05.097] INFO:     Started server process [1040]
+[00:20:05.097] INFO:     Waiting for application startup.
+[00:20:05.097] 2025-07-26 00:19:57,866 - ai_agent_server - INFO - 🚀 Starting LibreOffice LangGraph Agent Server...
+[00:20:05.097] 2025-07-26 00:19:57,866 - ai_agent_server - INFO - 🚀 Initializing LangGraph Agent System...
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - DEBUG: LangGraphBridge.__init__() called - new instance created
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - DEBUG: LangGraphBridge.__init__() called - new instance created
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - LangGraphBridge initialized
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - LangGraphBridge initialized
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - Initializing LangGraphBridge...
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge - INFO - Initializing LangGraphBridge...
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge.HttpApiIntegrationLayer - INFO - HTTP API integration initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,866 - bridge.HttpApiIntegrationLayer - INFO - HTTP API integration initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.document_master_agent - INFO - Agent document_master_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.document_master_agent - INFO - DEBUG: AGENTS_AVAILABLE = True
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.document_master_agent - INFO - DEBUG: Available agent classes: ContextAnalysisAgent=<class 'agents.context_analysis.ContextAnalysisAgent'>, ContentGenerationAgent=<class 'agents.content_generation.ContentGenerationAgent'>, FormattingAgent=<class 'agents.formatting.FormattingAgent'>, DataIntegrationAgent=<class 'agents.data_integration.DataIntegrationAgent'>, ValidationAgent=<class 'agents.validation.ValidationAgent'>, ExecutionAgent=<class 'agents.execution.ExecutionAgent'>
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.document_master_agent - INFO - DEBUG: Creating ContextAnalysisAgent...
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.context_analysis_agent - INFO - Agent context_analysis_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.context_analysis_agent - WARNING - UNO module not available, using mock connection
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.context_analysis_agent - INFO - Created mock UNO bridge for development
+[00:20:05.097] 2025-07-26 00:19:57,866 - agent.context_analysis_agent - INFO - UNO bridge connection established successfully
+[00:20:05.097] 2025-07-26 00:19:57,901 - llm_client - INFO - OpenAI client initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,915 - llm_client - INFO - Anthropic client initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.context_analysis_agent - INFO - ContextAnalysisAgent initialization completed
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.context_analysis_agent - INFO - ContextAnalysisAgent context_analysis_agent initialized with cache_enabled=True
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - Registered agent: context_analysis_agent with capabilities: [<AgentCapability.DOCUMENT_ANALYSIS: 'document_analysis'>]
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Registered ContextAnalysisAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Creating ContentGenerationAgent...
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.content_generation_agent - INFO - Agent content_generation_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,915 - agents.shared_cache - INFO - AgentCoordinationHub initialized
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.content_generation_agent - INFO - ContentGenerationAgent content_generation_agent initialized with content generation capabilities
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - Registered agent: content_generation_agent with capabilities: [<AgentCapability.CONTENT_GENERATION: 'content_generation'>, <AgentCapability.FORMATTING: 'formatting'>]
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Registered ContentGenerationAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Creating FormattingAgent...
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.formatting_agent - INFO - Agent formatting_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.formatting_agent - INFO - FormattingAgent formatting_agent initialized with formatting capabilities
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - Registered agent: formatting_agent with capabilities: [<AgentCapability.FORMATTING: 'formatting'>, <AgentCapability.DOCUMENT_ANALYSIS: 'document_analysis'>]
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Registered FormattingAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.document_master_agent - INFO - DEBUG: Creating DataIntegrationAgent...
+[00:20:05.097] 2025-07-26 00:19:57,915 - agent.data_integration_agent - INFO - Agent data_integration_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,915 - agents.credential_manager - INFO - Generated new encryption key for credential storage
+[00:20:05.097] 2025-07-26 00:19:57,916 - agents.credential_manager - INFO - SecureCredentialManager initialized
+[00:20:05.097] 2025-07-26 00:19:57,916 - agents.rate_limiter - INFO - RateLimiter initialized
+[00:20:05.097] 2025-07-26 00:19:57,917 - agents.rate_limiter - INFO - MultiTierCache initialized
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.data_integration_agent - INFO - DataIntegrationAgent data_integration_agent initialized with financial data capabilities
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - Registered agent: data_integration_agent with capabilities: [<AgentCapability.DATA_INTEGRATION: 'data_integration'>, <AgentCapability.DOCUMENT_ANALYSIS: 'document_analysis'>]
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Registered DataIntegrationAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Creating ValidationAgent...
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.validation_agent - INFO - Agent validation_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,917 - root - INFO - ValidationAgent initialized with 4 rules
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - Registered agent: validation_agent with capabilities: [<AgentCapability.VALIDATION: 'validation'>, <AgentCapability.QUALITY_ASSURANCE: 'quality_assurance'>, <AgentCapability.COMPLIANCE_CHECKING: 'compliance_checking'>]
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Registered ValidationAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Creating ExecutionAgent...
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.execution_agent - INFO - Agent execution_agent initialized successfully
+[00:20:05.097] 2025-07-26 00:19:57,917 - root - INFO - ExecutionAgent initialized with 2 executors and undo/redo system
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - Registered agent: execution_agent with capabilities: [<AgentCapability.EXECUTION: 'execution'>, <AgentCapability.DOCUMENT_ANALYSIS: 'document_analysis'>]
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Registered ExecutionAgent - success: True
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Final registered_agents count: 6
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DEBUG: Final registered_agents keys: ['context_analysis_agent', 'content_generation_agent', 'formatting_agent', 'data_integration_agent', 'validation_agent', 'execution_agent']
+[00:20:05.097] 2025-07-26 00:19:57,917 - agent.document_master_agent - INFO - DocumentMasterAgent document_master_agent initialized with orchestration capabilities
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DEBUG: DocumentMasterAgent created successfully
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DEBUG: DocumentMasterAgent created successfully
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DEBUG: DocumentMaster has 6 registered agents: ['context_analysis_agent', 'content_generation_agent', 'formatting_agent', 'data_integration_agent', 'validation_agent', 'execution_agent']
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DEBUG: DocumentMaster has 6 registered agents: ['context_analysis_agent', 'content_generation_agent', 'formatting_agent', 'data_integration_agent', 'validation_agent', 'execution_agent']
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DocumentMasterAgent initialized - handling internal orchestration
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - DocumentMasterAgent initialized - handling internal orchestration
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - LangGraphBridge initialization complete
+[00:20:05.097] 2025-07-26 00:19:57,917 - bridge - INFO - LangGraphBridge initialization complete
+[00:20:05.097] 2025-07-26 00:19:57,917 - ai_agent_server - INFO - ✅ Bridge Status: connected
+[00:20:05.097] 2025-07-26 00:19:57,917 - ai_agent_server - INFO - ✅ Integration Method: http_api
+[00:20:05.097] 2025-07-26 00:19:57,917 - ai_agent_server - INFO - ✅ Active Operations: 0
+[00:20:05.097] 2025-07-26 00:19:57,917 - ai_agent_server - INFO - 🎉 LangGraph Agent System initialization completed successfully!
+[00:20:05.097] 2025-07-26 00:19:57,917 - ai_agent_server - INFO - ✅ Agent system initialized successfully
+[00:20:05.097] INFO:     Application startup complete.
+[00:20:05.097] ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+[00:20:05.097] INFO:     Waiting for application shutdown.
+[00:20:05.097] 2025-07-26 00:19:57,918 - ai_agent_server - INFO - 🔄 Shutting down LibreOffice LangGraph Agent Server...
+[00:20:05.097] 2025-07-26 00:19:57,918 - ai_agent_server - INFO - 🔄 Shutting down LangGraph Agent System...
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge - INFO - Shutting down LangGraphBridge...
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge - INFO - Shutting down LangGraphBridge...
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge.HttpApiIntegrationLayer - INFO - HTTP API integration shutdown complete
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge.HttpApiIntegrationLayer - INFO - HTTP API integration shutdown complete
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge - INFO - LangGraphBridge shutdown complete
+[00:20:05.097] 2025-07-26 00:19:57,918 - bridge - INFO - LangGraphBridge shutdown complete
+[00:20:05.097] 2025-07-26 00:19:57,918 - ai_agent_server - INFO - ✅ LangGraph Agent System shutdown completed
+[00:20:05.097] 2025-07-26 00:19:57,918 - ai_agent_server - INFO - ✅ Server shutdown completed
+[00:20:05.097] INFO:     Application shutdown complete.
+[00:20:05.097] 🤖 LibreOffice LangGraph Agent Server
+[00:20:05.097] ============================================================
+[00:20:05.097] 🎯 Unified AI Agent System with LangGraph Integration
+[00:20:05.097] 🌐 Server starting on http://0.0.0.0:8000
+[00:20:05.097] 
+[00:20:05.097] 📊 Available Endpoints:
+[00:20:05.097] • POST http://0.0.0.0:8000/api/agent    (Unified agent processing)
+[00:20:05.097] • GET  http://0.0.0.0:8000/health       (Health check)
+[00:20:05.097] • GET  http://0.0.0.0:8000/status       (Detailed status)
+[00:20:05.097] • GET  http://0.0.0.0:8000/docs         (API documentation)
+[00:20:05.097] 
+[00:20:05.097] 🧠 Agent System Features:
+[00:20:05.097] ✅ DocumentMasterAgent orchestration
+[00:20:05.097] ✅ Intelligent complexity analysis and routing
+[00:20:05.097] ✅ Multi-agent coordination (Context, Content, Formatting, Data, etc.)
+[00:20:05.097] ✅ Comprehensive DocumentState management
+[00:20:05.097] ✅ LangGraph bridge integration
+[00:20:05.097] ✅ Unified error handling and recovery
+[00:20:05.097] ✅ Performance optimization and monitoring
+[00:20:05.097] ============================================================

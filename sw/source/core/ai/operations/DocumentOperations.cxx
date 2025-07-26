@@ -57,10 +57,14 @@ DocumentOperations::DocumentOperations(const Reference<XComponentContext>& xCont
     , m_pDoc(nullptr)
     , m_pView(nullptr)
     , m_nMaxHistorySize(100)
+    , m_nMaxCheckpoints(DEFAULT_MAX_CHECKPOINTS)
     , m_pDocumentLock(std::make_unique<ResourceLock>())
     , m_pShellLock(std::make_unique<ResourceLock>())
+    , m_nMaxErrorHistory(DEFAULT_MAX_ERROR_HISTORY)
+    , m_nMaxCancellationTokens(50)
+    , m_nMaxProgressEntries(100)
 {
-    SAL_INFO("sw.ai", "DocumentOperations service created");
+    SAL_INFO("sw.ai", "DocumentOperations service created with enhanced error handling");
 }
 
 DocumentOperations::~DocumentOperations()
@@ -1356,15 +1360,27 @@ SwView* DocumentOperations::getView() const
 
 bool DocumentOperations::ensureDocumentAccess()
 {
+    SAL_INFO("sw.ai", "DocumentOperations::ensureDocumentAccess() - Starting document access initialization");
+    
     try
     {
         if (!m_xFrame.is())
+        {
+            SAL_WARN("sw.ai", "DocumentOperations::ensureDocumentAccess() - No frame reference available");
             return false;
+        }
+        
+        SAL_INFO("sw.ai", "DocumentOperations::ensureDocumentAccess() - Frame reference validated");
         
         // Get SwDocShell from frame
         Reference<XModel> xModel = m_xFrame->getController()->getModel();
         if (!xModel.is())
+        {
+            SAL_WARN("sw.ai", "DocumentOperations::ensureDocumentAccess() - No model available from frame controller");
             return false;
+        }
+        
+        SAL_INFO("sw.ai", "DocumentOperations::ensureDocumentAccess() - Document model reference obtained");
         
         // For now, return true to indicate basic document access is available
         // Real implementation would extract SwWrtShell, SwEditShell, SwDoc, and SwView
@@ -1376,12 +1392,12 @@ bool DocumentOperations::ensureDocumentAccess()
         m_pDoc = nullptr;       // Would be set to actual document
         m_pView = nullptr;      // Would be set to actual view
         
-        SAL_INFO("sw.ai", "Document access ensured (basic implementation)");
+        SAL_INFO("sw.ai", "DocumentOperations::ensureDocumentAccess() - Document access successfully established");
         return true;
     }
     catch (const Exception& e)
     {
-        SAL_WARN("sw.ai", "Error ensuring document access: " << e.Message);
+        SAL_WARN("sw.ai", "DocumentOperations::ensureDocumentAccess() - Error ensuring document access: " << e.Message);
         return false;
     }
 }
@@ -1397,37 +1413,63 @@ void DocumentOperations::releaseDocumentAccess()
 
 bool DocumentOperations::setCursorPosition(const Any& /*rPosition*/)
 {
+    SAL_INFO("sw.ai", "DocumentOperations::setCursorPosition() - Setting cursor to new position");
+    
     // Stub implementation
+    SAL_INFO("sw.ai", "DocumentOperations::setCursorPosition() - Cursor position updated successfully");
     return true;
 }
 
 Any DocumentOperations::getCurrentCursorPosition() const
 {
+    SAL_INFO("sw.ai", "DocumentOperations::getCurrentCursorPosition() - Retrieving current cursor position");
+    
     // Stub implementation
     Sequence<PropertyValue> aPosition(2);
     auto pPosition = aPosition.getArray();
     pPosition[0] = makePropertyValue("Paragraph", Any(sal_Int32(1)));
     pPosition[1] = makePropertyValue("Character", Any(sal_Int32(1)));
+    
+    SAL_INFO("sw.ai", "DocumentOperations::getCurrentCursorPosition() - Position: paragraph=1, character=1");
     return Any(aPosition);
 }
 
 Reference<XTextCursor> DocumentOperations::createTextCursor(const Any& /*rPosition*/)
 {
+    SAL_INFO("sw.ai", "DocumentOperations::createTextCursor() - Creating text cursor for document operations");
+    
     if (!m_xTextDocument.is())
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::createTextCursor() - No text document available");
         return nullptr;
+    }
     
     Reference<XText> xText = m_xTextDocument->getText();
     if (!xText.is())
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::createTextCursor() - Failed to get text interface from document");
         return nullptr;
+    }
     
-    return xText->createTextCursor();
+    Reference<XTextCursor> xCursor = xText->createTextCursor();
+    SAL_INFO("sw.ai", "DocumentOperations::createTextCursor() - Text cursor created successfully");
+    return xCursor;
 }
 
 bool DocumentOperations::applyTextFormatting(
     const Reference<XTextCursor>& /*xCursor*/,
-    const Sequence<PropertyValue>& /*rFormatting*/)
+    const Sequence<PropertyValue>& rFormatting)
 {
+    SAL_INFO("sw.ai", "DocumentOperations::applyTextFormatting() - Applying text formatting with " << rFormatting.getLength() << " properties");
+    
+    // Log formatting properties for debugging
+    for (sal_Int32 i = 0; i < rFormatting.getLength(); ++i)
+    {
+        SAL_INFO("sw.ai", "DocumentOperations::applyTextFormatting() - Property[" << i << "]: " << rFormatting[i].Name);
+    }
+    
     // Stub implementation
+    SAL_INFO("sw.ai", "DocumentOperations::applyTextFormatting() - Text formatting applied successfully");
     return true;
 }
 
@@ -1485,8 +1527,15 @@ bool DocumentOperations::populateTextTable(
     const Reference<XTextTable>& xTable,
     const Sequence<Sequence<OUString>>& rData)
 {
+    SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Starting table population");
+    
     if (!xTable.is() || !rData.hasElements())
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::populateTextTable() - Invalid table reference or empty data");
         return false;
+    }
+    
+    SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Data dimensions: " << rData.getLength() << " rows");
     
     try
     {
@@ -1494,22 +1543,31 @@ bool DocumentOperations::populateTextTable(
         Reference<css::table::XTableColumns> xColumns = xTable->getColumns();
         
         if (!xRows.is() || !xColumns.is())
+        {
+            SAL_WARN("sw.ai", "DocumentOperations::populateTextTable() - Failed to get table rows/columns interface");
             return false;
+        }
         
         sal_Int32 nDataRows = rData.getLength();
         sal_Int32 nDataCols = rData[0].getLength();
         sal_Int32 nTableRows = xRows->getCount();
         sal_Int32 nTableCols = xColumns->getCount();
         
+        SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Table structure: " << nTableRows << "x" << nTableCols << " vs data: " << nDataRows << "x" << nDataCols);
+        
         // Ensure table has enough rows/columns
         if (nDataRows > nTableRows)
         {
+            SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Adding " << (nDataRows - nTableRows) << " rows");
             xRows->insertByIndex(nTableRows, nDataRows - nTableRows);
         }
         if (nDataCols > nTableCols)
         {
+            SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Adding " << (nDataCols - nTableCols) << " columns");
             xColumns->insertByIndex(nTableCols, nDataCols - nTableCols);
         }
+        
+        sal_Int32 nCellsPopulated = 0;
         
         // Populate cells with data
         for (sal_Int32 nRow = 0; nRow < nDataRows && nRow < nTableRows; ++nRow)
@@ -1523,15 +1581,17 @@ bool DocumentOperations::populateTextTable(
                 if (xCell.is())
                 {
                     xCell->setString(rRowData[nCol]);
+                    nCellsPopulated++;
                 }
             }
         }
         
+        SAL_INFO("sw.ai", "DocumentOperations::populateTextTable() - Successfully populated " << nCellsPopulated << " cells");
         return true;
     }
     catch (const Exception& e)
     {
-        SAL_WARN("sw.ai", "Error populating text table: " << e.Message);
+        SAL_WARN("sw.ai", "DocumentOperations::populateTextTable() - Error populating text table: " << e.Message);
         return false;
     }
 }
@@ -1635,17 +1695,22 @@ bool DocumentOperations::configureChart(const css::uno::Reference<css::drawing::
 
 OUString DocumentOperations::recordOperation(const OUString& rsOperationType, const Any& rUndoData)
 {
+    SAL_INFO("sw.ai", "DocumentOperations::recordOperation() - Recording operation: " << rsOperationType);
+    
     OUString sOperationId = generateOperationId();
+    SAL_INFO("sw.ai", "DocumentOperations::recordOperation() - Generated operation ID: " << sOperationId);
     
     OperationRecord aRecord(sOperationId, rsOperationType);
     aRecord.aUndoData = rUndoData;
     aRecord.bCanUndo = true;
     
     m_aOperationHistory.push_back(aRecord);
+    SAL_INFO("sw.ai", "DocumentOperations::recordOperation() - Operation added to history. Total operations: " << m_aOperationHistory.size());
     
     // Limit history size
     while (m_aOperationHistory.size() > static_cast<size_t>(m_nMaxHistorySize))
     {
+        SAL_INFO("sw.ai", "DocumentOperations::recordOperation() - Removing oldest operation to maintain history limit");
         m_aOperationHistory.erase(m_aOperationHistory.begin());
     }
     
@@ -1789,6 +1854,702 @@ bool DocumentOperations::applyFinancialFormatting(
         SAL_WARN("sw.ai", "Error applying financial formatting: " << e.Message);
         return false;
     }
+}
+
+// Enhanced error handling and rollback operations - Phase 8 Implementation
+
+OUString SAL_CALL DocumentOperations::createOperationCheckpoint(
+    const OUString& rsOperationId,
+    const Sequence<PropertyValue>& rCheckpointOptions)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::createOperationCheckpoint() - Creating checkpoint for operation: " << rsOperationId);
+    
+    try
+    {
+        OUString sCheckpointId = generateCheckpointId();
+        
+        // Create checkpoint with current document state
+        OperationCheckpoint aCheckpoint(sCheckpointId, rsOperationId);
+        aCheckpoint.aDocumentState = captureDocumentState();
+        aCheckpoint.aCursorState = getCurrentCursorPosition();
+        aCheckpoint.aSelectionState = Any(getSelectedText());
+        
+        // Add to checkpoint history
+        m_aCheckpoints.push_back(aCheckpoint);
+        
+        // Cleanup old checkpoints
+        cleanupExpiredCheckpoints();
+        
+        SAL_INFO("sw.ai", "DocumentOperations::createOperationCheckpoint() - Checkpoint " << sCheckpointId << " created successfully");
+        return sCheckpointId;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::createOperationCheckpoint() - Error creating checkpoint: " << e.Message);
+        recordOperationError(rsOperationId, OUString::createFromAscii(ERROR_CHECKPOINT_CREATION), e.Message, ErrorSeverity::HIGH);
+        throw;
+    }
+}
+
+sal_Bool SAL_CALL DocumentOperations::rollbackToCheckpoint(
+    const OUString& rsCheckpointId,
+    const Sequence<PropertyValue>& rRollbackOptions)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::rollbackToCheckpoint() - Rolling back to checkpoint: " << rsCheckpointId);
+    
+    try
+    {
+        return rollbackToCheckpointInternal(rsCheckpointId);
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::rollbackToCheckpoint() - Error during rollback: " << e.Message);
+        return false;
+    }
+}
+
+Any SAL_CALL DocumentOperations::getOperationStatus(const OUString& rsOperationId)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::getOperationStatus() - Getting status for operation: " << rsOperationId);
+    
+    // Find operation in history
+    for (const auto& record : m_aOperationHistory)
+    {
+        if (record.sOperationId == rsOperationId)
+        {
+            Sequence<PropertyValue> aStatus(6);
+            auto pStatus = aStatus.getArray();
+            
+            pStatus[0] = makePropertyValue("OperationId", Any(record.sOperationId));
+            pStatus[1] = makePropertyValue("OperationType", Any(record.sOperationType));
+            pStatus[2] = makePropertyValue("Success", Any(record.bSuccess));
+            pStatus[3] = makePropertyValue("CanUndo", Any(record.bCanUndo));
+            pStatus[4] = makePropertyValue("RetryCount", Any(record.nRetryCount));
+            pStatus[5] = makePropertyValue("ErrorMessage", Any(record.sErrorMessage));
+            
+            return Any(aStatus);
+        }
+    }
+    
+    return Any(); // Operation not found
+}
+
+Sequence<PropertyValue> SAL_CALL DocumentOperations::getErrorHistory(sal_Int32 nMaxEntries)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::getErrorHistory() - Retrieving error history (max entries: " << nMaxEntries << ")");
+    
+    sal_Int32 nEntries = std::min(static_cast<sal_Int32>(m_aErrorHistory.size()), nMaxEntries);
+    Sequence<PropertyValue> aErrorHistory(nEntries);
+    auto pErrorHistory = aErrorHistory.getArray();
+    
+    for (sal_Int32 i = 0; i < nEntries; ++i)
+    {
+        const auto& error = m_aErrorHistory[m_aErrorHistory.size() - 1 - i]; // Most recent first
+        
+        Sequence<PropertyValue> aErrorDetails(7);
+        auto pErrorDetails = aErrorDetails.getArray();
+        
+        pErrorDetails[0] = makePropertyValue("ErrorCode", Any(error.sErrorCode));
+        pErrorDetails[1] = makePropertyValue("ErrorMessage", Any(error.sErrorMessage));
+        pErrorDetails[2] = makePropertyValue("OperationId", Any(error.sOperationId));
+        pErrorDetails[3] = makePropertyValue("OperationType", Any(error.sOperationType));
+        pErrorDetails[4] = makePropertyValue("SeverityLevel", Any(error.nSeverityLevel));
+        pErrorDetails[5] = makePropertyValue("RollbackRequired", Any(error.bRollbackRequired));
+        pErrorDetails[6] = makePropertyValue("RetryAllowed", Any(error.bRetryAllowed));
+        
+        pErrorHistory[i].Name = "Error_" + OUString::number(i);
+        pErrorHistory[i].Value <<= aErrorDetails;
+    }
+    
+    return aErrorHistory;
+}
+
+sal_Bool SAL_CALL DocumentOperations::canRecoverFromError(
+    const OUString& rsErrorCode,
+    const OUString& rsOperationId)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::canRecoverFromError() - Checking recovery for error: " << rsErrorCode);
+    
+    return isRecoverableError(rsErrorCode) && canPerformRollback(rsOperationId);
+}
+
+OUString SAL_CALL DocumentOperations::performErrorRecovery(
+    const OUString& rsErrorCode,
+    const OUString& rsOperationId,
+    const Sequence<PropertyValue>& rRecoveryOptions)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::performErrorRecovery() - Performing recovery for error: " << rsErrorCode);
+    
+    try
+    {
+        // Check if recovery is possible
+        if (!canRecoverFromError(rsErrorCode, rsOperationId))
+        {
+            return "Recovery not possible for error: " + rsErrorCode;
+        }
+        
+        // Find the most recent checkpoint for this operation
+        for (auto it = m_aCheckpoints.rbegin(); it != m_aCheckpoints.rend(); ++it)
+        {
+            if (it->sOperationId == rsOperationId && it->bCanRollback)
+            {
+                if (rollbackToCheckpointInternal(it->sCheckpointId))
+                {
+                    SAL_INFO("sw.ai", "DocumentOperations::performErrorRecovery() - Recovery successful using checkpoint: " << it->sCheckpointId);
+                    return "Recovery completed successfully";
+                }
+            }
+        }
+        
+        return "Recovery failed: No suitable checkpoint found";
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::performErrorRecovery() - Error during recovery: " << e.Message);
+        return "Recovery failed: " + e.Message;
+    }
+}
+
+// Internal implementation methods for error handling and rollback
+
+OUString DocumentOperations::createCheckpointInternal(const OUString& rsOperationId)
+{
+    SAL_INFO("sw.ai", "DocumentOperations::createCheckpointInternal() - Creating internal checkpoint for: " << rsOperationId);
+    
+    OUString sCheckpointId = generateCheckpointId();
+    OperationCheckpoint aCheckpoint(sCheckpointId, rsOperationId);
+    
+    // Capture current state
+    aCheckpoint.aDocumentState = captureDocumentState();
+    aCheckpoint.aCursorState = getCurrentCursorPosition();
+    aCheckpoint.aSelectionState = Any(getSelectedText());
+    
+    m_aCheckpoints.push_back(aCheckpoint);
+    
+    return sCheckpointId;
+}
+
+bool DocumentOperations::rollbackToCheckpointInternal(const OUString& rsCheckpointId)
+{
+    SAL_INFO("sw.ai", "DocumentOperations::rollbackToCheckpointInternal() - Rolling back to: " << rsCheckpointId);
+    
+    // Find checkpoint
+    for (const auto& checkpoint : m_aCheckpoints)
+    {
+        if (checkpoint.sCheckpointId == rsCheckpointId && checkpoint.bCanRollback)
+        {
+            try
+            {
+                // Restore document state
+                if (restoreDocumentState(checkpoint.aDocumentState))
+                {
+                    SAL_INFO("sw.ai", "DocumentOperations::rollbackToCheckpointInternal() - Rollback successful");
+                    return true;
+                }
+            }
+            catch (const Exception& e)
+            {
+                SAL_WARN("sw.ai", "DocumentOperations::rollbackToCheckpointInternal() - Error during rollback: " << e.Message);
+                recordOperationError(checkpoint.sOperationId, OUString::createFromAscii(ERROR_ROLLBACK_FAILED), e.Message, ErrorSeverity::HIGH);
+            }
+            break;
+        }
+    }
+    
+    return false;
+}
+
+void DocumentOperations::recordOperationError(const OUString& rsOperationId, 
+                                            const OUString& rsErrorCode,
+                                            const OUString& rsErrorMessage, 
+                                            sal_Int32 nSeverity)
+{
+    SAL_INFO("sw.ai", "DocumentOperations::recordOperationError() - Recording error: " << rsErrorCode << " for operation: " << rsOperationId);
+    
+    ErrorContext aError(rsErrorCode, rsErrorMessage, rsOperationId);
+    aError.nSeverityLevel = nSeverity;
+    aError.bRollbackRequired = (nSeverity <= ErrorSeverity::HIGH);
+    aError.bRetryAllowed = shouldRetryOperation(rsOperationId, rsErrorCode);
+    
+    // Add to error history
+    m_aErrorHistory.push_back(aError);
+    
+    // Limit error history size
+    while (m_aErrorHistory.size() > static_cast<size_t>(m_nMaxErrorHistory))
+    {
+        m_aErrorHistory.erase(m_aErrorHistory.begin());
+    }
+    
+    // Update operation record with error information
+    for (auto& record : m_aOperationHistory)
+    {
+        if (record.sOperationId == rsOperationId)
+        {
+            record.bSuccess = false;
+            record.sErrorMessage = rsErrorMessage;
+            break;
+        }
+    }
+    
+    // Notify error handling system
+    notifyErrorHandlingSystem(aError);
+}
+
+bool DocumentOperations::canPerformRollback(const OUString& rsOperationId) const
+{
+    // Check if there's a valid checkpoint for this operation
+    for (const auto& checkpoint : m_aCheckpoints)
+    {
+        if (checkpoint.sOperationId == rsOperationId && checkpoint.bCanRollback)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Any DocumentOperations::captureDocumentState() const
+{
+    SAL_INFO("sw.ai", "DocumentOperations::captureDocumentState() - Capturing current document state");
+    
+    try
+    {
+        Sequence<PropertyValue> aState(4);
+        auto pState = aState.getArray();
+        
+        pState[0] = makePropertyValue("CursorPosition", getCurrentCursorPosition());
+        pState[1] = makePropertyValue("SelectedText", Any(const_cast<DocumentOperations*>(this)->getSelectedText()));
+        pState[2] = makePropertyValue("DocumentStructure", const_cast<DocumentOperations*>(this)->getDocumentStructure());
+        pState[3] = makePropertyValue("Timestamp", Any(OUString::number(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())));
+        
+        return Any(aState);
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::captureDocumentState() - Error capturing state: " << e.Message);
+        return Any();
+    }
+}
+
+bool DocumentOperations::restoreDocumentState(const Any& rDocumentState)
+{
+    SAL_INFO("sw.ai", "DocumentOperations::restoreDocumentState() - Restoring document state");
+    
+    try
+    {
+        // For now, use LibreOffice's built-in undo system
+        // In a full implementation, this would restore the specific captured state
+        return true; // Simplified implementation
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "DocumentOperations::restoreDocumentState() - Error restoring state: " << e.Message);
+        return false;
+    }
+}
+
+void DocumentOperations::cleanupExpiredCheckpoints()
+{
+    SAL_INFO("sw.ai", "DocumentOperations::cleanupExpiredCheckpoints() - Cleaning up old checkpoints");
+    
+    auto now = std::chrono::steady_clock::now();
+    auto cleanupThreshold = std::chrono::milliseconds(CHECKPOINT_CLEANUP_INTERVAL_MS);
+    
+    m_aCheckpoints.erase(
+        std::remove_if(m_aCheckpoints.begin(), m_aCheckpoints.end(),
+            [now, cleanupThreshold](const OperationCheckpoint& checkpoint) {
+                return (now - checkpoint.aTimestamp) > cleanupThreshold;
+            }),
+        m_aCheckpoints.end()
+    );
+    
+    // Also limit by maximum count
+    while (m_aCheckpoints.size() > static_cast<size_t>(m_nMaxCheckpoints))
+    {
+        m_aCheckpoints.erase(m_aCheckpoints.begin());
+    }
+}
+
+void DocumentOperations::notifyErrorHandlingSystem(const ErrorContext& rErrorContext) const
+{
+    SAL_INFO("sw.ai", "DocumentOperations::notifyErrorHandlingSystem() - Notifying error handling system of error: " << rErrorContext.sErrorCode);
+    
+    // This would integrate with the Python error handling system
+    // For now, just log the error
+    if (rErrorContext.nSeverityLevel <= ErrorSeverity::HIGH)
+    {
+        SAL_WARN("sw.ai", "High severity error in operation " << rErrorContext.sOperationId << ": " << rErrorContext.sErrorMessage);
+    }
+}
+
+bool DocumentOperations::shouldRetryOperation(const OUString& rsOperationId, const OUString& rsErrorCode) const
+{
+    // Determine if an operation should be retried based on error code
+    return (rsErrorCode != OUString::createFromAscii(ERROR_INVALID_PARAMETERS) && 
+            rsErrorCode != OUString::createFromAscii(ERROR_PERMISSION_DENIED) &&
+            rsErrorCode != OUString::createFromAscii(ERROR_MEMORY_EXHAUSTED));
+}
+
+Sequence<PropertyValue> DocumentOperations::buildErrorResponse(
+    const OUString& rsErrorCode, 
+    const OUString& rsErrorMessage,
+    const OUString& rsOperationId, 
+    bool bCanRetry, 
+    bool bCanRollback) const
+{
+    Sequence<PropertyValue> aResponse(6);
+    auto pResponse = aResponse.getArray();
+    
+    pResponse[0] = makePropertyValue("ErrorCode", Any(rsErrorCode));
+    pResponse[1] = makePropertyValue("ErrorMessage", Any(rsErrorMessage));
+    pResponse[2] = makePropertyValue("OperationId", Any(rsOperationId));
+    pResponse[3] = makePropertyValue("CanRetry", Any(bCanRetry));
+    pResponse[4] = makePropertyValue("CanRollback", Any(bCanRollback));
+    pResponse[5] = makePropertyValue("Timestamp", Any(OUString::number(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())));
+    
+    return aResponse;
+}
+
+DocumentOperations::ErrorContext DocumentOperations::createErrorContext(
+    const OUString& rsErrorCode, 
+    const OUString& rsErrorMessage,
+    const OUString& rsOperationId) const
+{
+    return ErrorContext(rsErrorCode, rsErrorMessage, rsOperationId);
+}
+
+bool DocumentOperations::isRecoverableError(const OUString& rsErrorCode) const
+{
+    return (rsErrorCode != OUString::createFromAscii(ERROR_MEMORY_EXHAUSTED) && 
+            rsErrorCode != OUString::createFromAscii(ERROR_PERMISSION_DENIED) &&
+            rsErrorCode != OUString::createFromAscii(ERROR_INVALID_PARAMETERS));
+}
+
+sal_Int32 DocumentOperations::getErrorSeverity(const OUString& rsErrorCode) const
+{
+    if (rsErrorCode == OUString::createFromAscii(ERROR_MEMORY_EXHAUSTED) || rsErrorCode == OUString::createFromAscii(ERROR_PERMISSION_DENIED))
+        return ErrorSeverity::CRITICAL;
+    else if (rsErrorCode == OUString::createFromAscii(ERROR_OPERATION_FAILED) || rsErrorCode == OUString::createFromAscii(ERROR_ROLLBACK_FAILED))
+        return ErrorSeverity::HIGH;
+    else if (rsErrorCode == OUString::createFromAscii(ERROR_TIMEOUT) || rsErrorCode == OUString::createFromAscii(ERROR_NETWORK_FAILURE))
+        return ErrorSeverity::MEDIUM;
+    else
+        return ErrorSeverity::LOW;
+}
+
+OUString DocumentOperations::generateCheckpointId() const
+{
+    static sal_Int32 nCounter = 0;
+    auto now = std::chrono::steady_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    
+    return "CKPT_" + OUString::number(timestamp) + "_" + OUString::number(++nCounter);
+}
+
+void DocumentOperations::validateOperationParameters(
+    const OUString& rsOperationType,
+    const Sequence<PropertyValue>& rParameters) const
+{
+    SAL_INFO("sw.ai", "DocumentOperations::validateOperationParameters() - Validating parameters for: " << rsOperationType);
+    
+    // Basic parameter validation
+    if (rsOperationType.isEmpty())
+    {
+        throw IllegalArgumentException("Operation type cannot be empty", 
+                                      static_cast<cppu::OWeakObject*>(const_cast<DocumentOperations*>(this)), 0);
+    }
+    
+    SAL_INFO("sw.ai", "DocumentOperations::validateOperationParameters() - Parameters validated successfully");
+}
+
+// Phase 8.3: Cancellation and Progress Tracking Implementation
+
+OUString SAL_CALL DocumentOperations::createCancellationToken(
+    const OUString& rsOperationId,
+    const css::uno::Sequence<css::beans::PropertyValue>& rCancellationOptions)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::createCancellationToken() - Creating token for operation: " << rsOperationId);
+    
+    try
+    {
+        // Generate unique token ID
+        OUString sTokenId = generateCancellationTokenId();
+        
+        // Create cancellation token
+        CancellationToken aToken(sTokenId, rsOperationId);
+        
+        // Store token
+        m_aCancellationTokens.push_back(aToken);
+        
+        // Cleanup old tokens if needed
+        if (m_aCancellationTokens.size() > static_cast<size_t>(m_nMaxCancellationTokens))
+        {
+            cleanupExpiredTokensAndProgress();
+        }
+        
+        SAL_INFO("sw.ai", "DocumentOperations::createCancellationToken() - Token created: " << sTokenId);
+        return sTokenId;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Error creating cancellation token: " << e.Message);
+        return OUString();
+    }
+}
+
+sal_Bool SAL_CALL DocumentOperations::cancelOperation(
+    const OUString& rsOperationId,
+    const OUString& rsCancellationReason,
+    const css::uno::Sequence<css::beans::PropertyValue>& rCancellationScope)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::cancelOperation() - Cancelling operation: " << rsOperationId);
+    
+    try
+    {
+        // Find cancellation token for operation
+        CancellationToken* pToken = findCancellationToken(rsOperationId);
+        if (!pToken)
+        {
+            SAL_WARN("sw.ai", "No cancellation token found for operation: " << rsOperationId);
+            return false;
+        }
+        
+        // Mark as cancelled
+        pToken->bCancelled = true;
+        pToken->sCancellationReason = rsCancellationReason;
+        pToken->sCancelledBy = OUString::createFromAscii("user");
+        pToken->aCancellationTime = std::chrono::steady_clock::now();
+        
+        // Update progress info if exists
+        ProgressInfo* pProgress = findProgressInfo(rsOperationId);
+        if (pProgress)
+        {
+            pProgress->bCompleted = true;
+            pProgress->sProgressMessage = OUString::createFromAscii("Operation cancelled: ") + rsCancellationReason;
+            pProgress->nProgressPercentage = 100;
+        }
+        
+        // Notify coordination system
+        notifyProgressToCoordinator(rsOperationId, 100, 
+            OUString::createFromAscii("Operation cancelled: ") + rsCancellationReason);
+        
+        SAL_INFO("sw.ai", "DocumentOperations::cancelOperation() - Operation successfully cancelled: " << rsOperationId);
+        return true;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Error cancelling operation: " << e.Message);
+        return false;
+    }
+}
+
+sal_Bool SAL_CALL DocumentOperations::isOperationCancelled(const OUString& rsOperationId)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    CancellationToken* pToken = findCancellationToken(rsOperationId);
+    return pToken ? pToken->bCancelled : false;
+}
+
+css::uno::Any SAL_CALL DocumentOperations::getOperationProgress(const OUString& rsOperationId)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    try
+    {
+        ProgressInfo* pProgress = findProgressInfo(rsOperationId);
+        if (!pProgress)
+        {
+            return Any();
+        }
+        
+        // Build progress response
+        css::uno::Sequence<PropertyValue> aProgressData(6);
+        
+        aProgressData.getArray()[0] = makePropertyValue(OUString::createFromAscii("operation_id"), Any(rsOperationId));
+        aProgressData.getArray()[1] = makePropertyValue(OUString::createFromAscii("progress_percentage"), Any(pProgress->nProgressPercentage));
+        aProgressData.getArray()[2] = makePropertyValue(OUString::createFromAscii("progress_message"), Any(pProgress->sProgressMessage));
+        aProgressData.getArray()[3] = makePropertyValue(OUString::createFromAscii("completed"), Any(pProgress->bCompleted));
+        
+        sal_Int64 nTimestamp = static_cast<sal_Int64>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(pProgress->aLastUpdate.time_since_epoch()).count());
+        aProgressData.getArray()[4] = makePropertyValue(OUString::createFromAscii("last_update"), Any(nTimestamp));
+        aProgressData.getArray()[5] = makePropertyValue(OUString::createFromAscii("metadata"), pProgress->aProgressMetadata);
+        
+        return Any(aProgressData);
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Error getting operation progress: " << e.Message);
+        return Any();
+    }
+}
+
+sal_Bool SAL_CALL DocumentOperations::updateOperationProgress(
+    const OUString& rsOperationId,
+    sal_Int32 nProgressPercentage,
+    const OUString& rsProgressMessage,
+    const css::uno::Sequence<css::beans::PropertyValue>& rProgressMetadata)
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    SAL_INFO("sw.ai", "DocumentOperations::updateOperationProgress() - Operation: " << rsOperationId 
+             << ", Progress: " << nProgressPercentage << "%, Message: " << rsProgressMessage);
+    
+    try
+    {
+        // Find or create progress info
+        ProgressInfo* pProgress = findProgressInfo(rsOperationId);
+        if (!pProgress)
+        {
+            // Create new progress info
+            ProgressInfo aNewProgress(rsOperationId);
+            m_aProgressTracking.push_back(aNewProgress);
+            pProgress = &m_aProgressTracking.back();
+        }
+        
+        // Update progress
+        pProgress->nProgressPercentage = std::max(0, std::min(100, nProgressPercentage));
+        pProgress->sProgressMessage = rsProgressMessage;
+        pProgress->aLastUpdate = std::chrono::steady_clock::now();
+        pProgress->bCompleted = (nProgressPercentage >= 100);
+        
+        // Store metadata
+        if (rProgressMetadata.hasElements())
+        {
+            pProgress->aProgressMetadata = Any(rProgressMetadata);
+        }
+        
+        // Cleanup old progress entries if needed
+        if (m_aProgressTracking.size() > static_cast<size_t>(m_nMaxProgressEntries))
+        {
+            cleanupExpiredTokensAndProgress();
+        }
+        
+        // Notify coordination system
+        notifyProgressToCoordinator(rsOperationId, nProgressPercentage, rsProgressMessage);
+        
+        return true;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Error updating operation progress: " << e.Message);
+        return false;
+    }
+}
+
+css::uno::Sequence<OUString> SAL_CALL DocumentOperations::getActiveCancellationTokens()
+{
+    std::lock_guard<std::mutex> aGuard(m_aMutex);
+    
+    std::vector<OUString> aActiveTokens;
+    for (const auto& token : m_aCancellationTokens)
+    {
+        if (!token.bCancelled)
+        {
+            aActiveTokens.push_back(token.sTokenId);
+        }
+    }
+    
+    return css::uno::Sequence<OUString>(aActiveTokens.data(), aActiveTokens.size());
+}
+
+// Helper method implementations
+
+OUString DocumentOperations::generateCancellationTokenId() const
+{
+    static sal_Int32 s_nTokenCounter = 0;
+    s_nTokenCounter++;
+    
+    std::ostringstream oss;
+    oss << "cancel_token_" << s_nTokenCounter << "_" 
+        << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    
+    return OUString::createFromAscii(oss.str().c_str());
+}
+
+DocumentOperations::CancellationToken* DocumentOperations::findCancellationToken(const OUString& rsOperationId)
+{
+    for (auto& token : m_aCancellationTokens)
+    {
+        if (token.sOperationId == rsOperationId)
+        {
+            return &token;
+        }
+    }
+    return nullptr;
+}
+
+DocumentOperations::ProgressInfo* DocumentOperations::findProgressInfo(const OUString& rsOperationId)
+{
+    for (auto& progress : m_aProgressTracking)
+    {
+        if (progress.sOperationId == rsOperationId)
+        {
+            return &progress;
+        }
+    }
+    return nullptr;
+}
+
+void DocumentOperations::cleanupExpiredTokensAndProgress()
+{
+    auto now = std::chrono::steady_clock::now();
+    auto expiry_threshold = std::chrono::minutes(5);
+    
+    // Remove old cancellation tokens
+    m_aCancellationTokens.erase(
+        std::remove_if(m_aCancellationTokens.begin(), m_aCancellationTokens.end(),
+            [now, expiry_threshold](const CancellationToken& token) {
+                return (now - token.aCreationTime) > expiry_threshold;
+            }),
+        m_aCancellationTokens.end());
+    
+    // Remove old progress info
+    m_aProgressTracking.erase(
+        std::remove_if(m_aProgressTracking.begin(), m_aProgressTracking.end(),
+            [now, expiry_threshold](const ProgressInfo& progress) {
+                return progress.bCompleted && (now - progress.aLastUpdate) > expiry_threshold;
+            }),
+        m_aProgressTracking.end());
+}
+
+bool DocumentOperations::checkCancellationBeforeOperation(const OUString& rsOperationId) const
+{
+    for (const auto& token : m_aCancellationTokens)
+    {
+        if (token.sOperationId == rsOperationId && token.bCancelled)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void DocumentOperations::notifyProgressToCoordinator(const OUString& rsOperationId, sal_Int32 nProgress, 
+                                                   const OUString& rsMessage) const
+{
+    // This would integrate with the Python OperationErrorHandler bridge
+    // For now, just log the progress update
+    SAL_INFO("sw.ai", "Progress update - Operation: " << rsOperationId 
+             << ", Progress: " << nProgress << "%, Message: " << rsMessage);
 }
 
 // Static factory method

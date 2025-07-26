@@ -285,16 +285,31 @@ class ErrorMessageTranslator:
     def _categorize_error(self, error_context: ErrorContext) -> str:
         """Categorize error for template selection."""
         if hasattr(error_context, 'category'):
-            category_mapping = {
-                ErrorCategory.NETWORK_ERROR: "network_error",
-                ErrorCategory.API_FAILURE: "service_unavailable",
-                ErrorCategory.TIMEOUT_ERROR: "timeout_error",
-                ErrorCategory.VALIDATION_ERROR: "validation_error",
-                ErrorCategory.AGENT_COORDINATION: "agent_coordination_error",
-                ErrorCategory.DOCUMENT_PROCESSING: "document_error",
-                ErrorCategory.AUTHENTICATION_ERROR: "authentication_error"
-            }
-            return category_mapping.get(error_context.category, "processing_error")
+            try:
+                category_mapping = {
+                    ErrorCategory.NETWORK_ERROR: "network_error",
+                    ErrorCategory.API_FAILURE: "service_unavailable",
+                    ErrorCategory.TIMEOUT_ERROR: "timeout_error",
+                    ErrorCategory.VALIDATION_ERROR: "validation_error",
+                    ErrorCategory.AGENT_COORDINATION: "agent_coordination_error",
+                    ErrorCategory.DOCUMENT_PROCESSING: "document_error",
+                    ErrorCategory.AUTHENTICATION_ERROR: "authentication_error"
+                }
+                return category_mapping.get(error_context.category, "processing_error")
+            except AttributeError:
+                # Fallback when ErrorCategory is not properly imported
+                if isinstance(error_context.category, str):
+                    string_mapping = {
+                        "NETWORK_ERROR": "network_error",
+                        "API_FAILURE": "service_unavailable", 
+                        "TIMEOUT_ERROR": "timeout_error",
+                        "VALIDATION_ERROR": "validation_error",
+                        "AGENT_COORDINATION": "agent_coordination_error",
+                        "DOCUMENT_PROCESSING": "document_error",
+                        "AUTHENTICATION_ERROR": "authentication_error"
+                    }
+                    return string_mapping.get(error_context.category, "processing_error")
+                return "processing_error"
         
         # Fallback categorization based on error message
         error_message = str(error_context).lower()
@@ -665,16 +680,19 @@ class UIErrorPropagator:
     
     def __init__(self, 
                  bridge: Optional[LangGraphBridge] = None,
-                 error_tracker: Optional[ErrorTracker] = None):
+                 error_tracker: Optional[ErrorTracker] = None,
+                 document_operations_service=None):
         """
         Initialize UI error propagator.
         
         Args:
             bridge: LangGraph bridge for C++ communication
             error_tracker: Error tracker for context
+            document_operations_service: DocumentOperations UNO service for Phase 8.4 integration
         """
         self.bridge = bridge
         self.error_tracker = error_tracker
+        self.document_operations_service = document_operations_service
         
         # Initialize components
         self.message_translator = ErrorMessageTranslator()
@@ -682,13 +700,18 @@ class UIErrorPropagator:
         self.websocket_notifier = WebSocketErrorNotifier()
         self.bridge_communicator = BridgeErrorCommunicator(bridge)
         
+        # Phase 8.4: DocumentOperations integration
+        self.operation_error_mapping = {}  # operation_id -> error context mapping
+        
         # Statistics
         self.propagation_stats = {
             "total_errors_propagated": 0,
             "websocket_notifications": 0,
             "bridge_notifications": 0,
             "progress_updates": 0,
-            "translation_requests": 0
+            "translation_requests": 0,
+            "document_operations_notifications": 0,
+            "error_recovery_attempts": 0
         }
         
         self.logger = logging.getLogger("ui_error_propagator")
@@ -736,9 +759,24 @@ class UIErrorPropagator:
             if success:
                 self.propagation_stats["bridge_notifications"] += 1
         
+        # Phase 8.4: Propagate via DocumentOperations service
+        if "document_operations" in channels or (operation_id and self.document_operations_service):
+            success = await self._propagate_to_document_operations(ui_error, error_context, operation_context)
+            if success:
+                self.propagation_stats["document_operations_notifications"] += 1
+        
         # Track in error tracker if available
         if self.error_tracker:
             self.error_tracker.track_ui_error(ui_error, operation_context)
+        
+        # Store error mapping for recovery purposes
+        if operation_id:
+            self.operation_error_mapping[operation_id] = {
+                "ui_error": ui_error,
+                "error_context": error_context,
+                "operation_context": operation_context,
+                "timestamp": datetime.now(timezone.utc)
+            }
         
         self.logger.info(f"Propagated error {ui_error.error_id} via channels: {channels}")
         return ui_error
@@ -790,13 +828,233 @@ class UIErrorPropagator:
             "recent_errors": len([e for e in self.progress_tracker.progress_history 
                                 if e.has_error and e.error_message])
         }
+    
+    # Phase 8.4: DocumentOperations Integration Methods
+    
+    async def _propagate_to_document_operations(self, 
+                                              ui_error: UIErrorMessage,
+                                              error_context: ErrorContext,
+                                              operation_context: Dict[str, Any]) -> bool:
+        """
+        Propagate error to DocumentOperations service for C++ integration.
+        
+        Args:
+            ui_error: User-friendly error message
+            error_context: Technical error context
+            operation_context: Operation context information
+            
+        Returns:
+            bool: True if propagation successful
+        """
+        if not self.document_operations_service:
+            self.logger.warning("DocumentOperations service not available for error propagation")
+            return False
+        
+        try:
+            operation_id = operation_context.get("operation_id")
+            if not operation_id:
+                self.logger.warning("No operation_id provided for DocumentOperations error propagation")
+                return False
+            
+            # Create error property sequence for DocumentOperations
+            from com.sun.star.beans import PropertyValue
+            
+            error_properties = [
+                self._create_property_value("error_id", ui_error.error_id),
+                self._create_property_value("severity", ui_error.severity.value),
+                self._create_property_value("error_type", ui_error.error_type.value),
+                self._create_property_value("title", ui_error.title),
+                self._create_property_value("message", ui_error.message),
+                self._create_property_value("details", ui_error.details or ""),
+                self._create_property_value("suggested_actions", "|".join(ui_error.suggested_actions)),
+                self._create_property_value("show_retry_button", ui_error.show_retry_button),
+                self._create_property_value("show_cancel_button", ui_error.show_cancel_button),
+                self._create_property_value("auto_dismiss_seconds", ui_error.auto_dismiss_seconds or 0),
+                self._create_property_value("timestamp", ui_error.timestamp.isoformat()),
+                self._create_property_value("progress_percentage", ui_error.current_progress),
+                self._create_property_value("technical_details", ui_error.technical_details or ""),
+                self._create_property_value("retry_allowed", error_context.retry_allowed if hasattr(error_context, 'retry_allowed') else True),
+                self._create_property_value("rollback_required", self._should_require_rollback(error_context)),
+                self._create_property_value("operation_type", operation_context.get("operation_type", "unknown"))
+            ]
+            
+            # Record error in DocumentOperations service
+            error_code = self._map_error_category_to_code(error_context.category if hasattr(error_context, 'category') else 'unknown')
+            severity = self._map_error_severity_to_level(error_context.severity if hasattr(error_context, 'severity') else 'medium')
+            
+            # This calls the DocumentOperations::recordOperationError method we implemented in Phase 8.2
+            self.document_operations_service.recordOperationError(
+                operation_id, 
+                error_code, 
+                ui_error.message,
+                severity
+            )
+            
+            # Check if recovery is possible and inform user
+            can_recover = self.document_operations_service.canRecoverFromError(error_code, operation_id)
+            if can_recover:
+                recovery_options = error_properties  # Use error properties as recovery options
+                recovery_result = self.document_operations_service.performErrorRecovery(
+                    error_code, operation_id, recovery_options)
+                
+                if recovery_result:
+                    self.logger.info(f"Successfully initiated error recovery for operation {operation_id}")
+                    self.propagation_stats["error_recovery_attempts"] += 1
+                    
+                    # Update UI with recovery status
+                    recovery_ui_error = UIErrorMessage(
+                        severity=UIErrorSeverity.INFO,
+                        error_type=UIErrorType.PROCESSING_ERROR,
+                        title="Attempting Error Recovery",
+                        message=f"Attempting to recover from the error: {ui_error.title}",
+                        details=f"Recovery operation: {recovery_result}",
+                        suggested_actions=["Please wait while we attempt to recover", "You can cancel if needed"],
+                        operation_id=operation_id,
+                        show_retry_button=False,
+                        show_cancel_button=True,
+                        auto_dismiss_seconds=10
+                    )
+                    
+                    # Propagate recovery notification
+                    await self.websocket_notifier.notify_error(recovery_ui_error)
+            
+            self.logger.info(f"Successfully propagated error to DocumentOperations service for operation {operation_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to propagate error to DocumentOperations service: {e}")
+            return False
+    
+    def _create_property_value(self, name: str, value: Any):
+        """Create a PropertyValue for UNO interface."""
+        try:
+            from com.sun.star.beans import PropertyValue
+            from com.sun.star.uno import Any as UnoAny
+            
+            prop = PropertyValue()
+            prop.Name = name
+            prop.Value = UnoAny(type(value), value)
+            return prop
+        except Exception:
+            # Fallback for testing or when UNO isn't available
+            return {"Name": name, "Value": value}
+    
+    def _map_error_category_to_code(self, category: str) -> str:
+        """Map error category to DocumentOperations error code."""
+        mapping = {
+            "network_error": "NETWORK_FAILURE",
+            "service_unavailable": "RESOURCE_UNAVAILABLE", 
+            "processing_error": "OPERATION_FAILED",
+            "validation_error": "INVALID_PARAMETERS",
+            "agent_coordination_error": "OPERATION_FAILED",
+            "timeout_error": "TIMEOUT",
+            "authentication_error": "PERMISSION_DENIED",
+            "document_error": "DOCUMENT_ACCESS",
+            "system_error": "OPERATION_FAILED"
+        }
+        return mapping.get(str(category).lower(), "OPERATION_FAILED")
+    
+    def _map_error_severity_to_level(self, severity: str) -> int:
+        """Map error severity to DocumentOperations severity level."""
+        mapping = {
+            "critical": 1,  # CRITICAL
+            "high": 2,      # HIGH  
+            "medium": 3,    # MEDIUM
+            "low": 4        # LOW
+        }
+        return mapping.get(str(severity).lower(), 3)
+    
+    def _should_require_rollback(self, error_context) -> bool:
+        """Determine if error should require rollback."""
+        if not hasattr(error_context, 'severity'):
+            return False
+        
+        severity = str(error_context.severity).lower()
+        return severity in ["critical", "high"]
+    
+    async def handle_document_operations_error_feedback(self, 
+                                                       operation_id: str,
+                                                       error_response: Dict[str, Any]) -> None:
+        """
+        Handle error feedback from DocumentOperations service.
+        
+        Args:
+            operation_id: Operation that had an error
+            error_response: Error response from DocumentOperations
+        """
+        try:
+            # Check if we have stored error context
+            if operation_id not in self.operation_error_mapping:
+                self.logger.warning(f"No stored error context for operation {operation_id}")
+                return
+            
+            stored_error = self.operation_error_mapping[operation_id]
+            
+            # Create updated UI error message based on DocumentOperations feedback
+            updated_ui_error = UIErrorMessage(
+                severity=UIErrorSeverity.INFO,
+                error_type=UIErrorType.PROCESSING_ERROR,
+                title="Error Processing Update",
+                message=f"DocumentOperations feedback: {error_response.get('message', 'Processing completed')}",
+                details=error_response.get("details", ""),
+                suggested_actions=error_response.get("suggested_actions", ["Continue with document editing"]),
+                operation_id=operation_id,
+                show_retry_button=error_response.get("can_retry", False),
+                show_cancel_button=False,
+                auto_dismiss_seconds=error_response.get("auto_dismiss", 8)
+            )
+            
+            # Propagate feedback to UI
+            await self.websocket_notifier.notify_error(updated_ui_error)
+            
+            # Update progress if needed
+            if error_response.get("progress_update"):
+                progress_data = error_response["progress_update"]
+                await self.update_progress(
+                    operation_id=operation_id,
+                    progress_percentage=progress_data.get("percentage", 100),
+                    state=ProgressState.COMPLETED,
+                    step_description=progress_data.get("message", "Error handled"),
+                    operation_context=stored_error["operation_context"]
+                )
+            
+            self.logger.info(f"Handled DocumentOperations error feedback for operation {operation_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to handle DocumentOperations error feedback: {e}")
+    
+    def set_document_operations_service(self, document_operations_service):
+        """Set the DocumentOperations service for Phase 8.4 integration."""
+        self.document_operations_service = document_operations_service
+        self.logger.info("DocumentOperations service set for UI error propagation")
+    
+    def get_operation_error_history(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        """Get error history for a specific operation."""
+        return self.operation_error_mapping.get(operation_id)
+    
+    async def clear_operation_errors(self, operation_id: str) -> bool:
+        """Clear error history for completed/cancelled operations."""
+        try:
+            if operation_id in self.operation_error_mapping:
+                del self.operation_error_mapping[operation_id]
+                self.logger.info(f"Cleared error history for operation {operation_id}")
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to clear operation errors: {e}")
+            return False
 
 
 # Factory functions
 def create_ui_error_propagator(bridge: Optional[LangGraphBridge] = None,
-                              error_tracker: Optional[ErrorTracker] = None) -> UIErrorPropagator:
-    """Factory function to create UI error propagator."""
-    return UIErrorPropagator(bridge=bridge, error_tracker=error_tracker)
+                              error_tracker: Optional[ErrorTracker] = None,
+                              document_operations_service=None) -> UIErrorPropagator:
+    """Factory function to create UI error propagator with Phase 8.4 DocumentOperations support."""
+    return UIErrorPropagator(
+        bridge=bridge, 
+        error_tracker=error_tracker,
+        document_operations_service=document_operations_service
+    )
 
 
 def create_error_message_translator() -> ErrorMessageTranslator:

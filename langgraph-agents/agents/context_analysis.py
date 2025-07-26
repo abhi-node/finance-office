@@ -770,7 +770,13 @@ class ContextAnalysisAgent(BaseAgent):
             # Get user message for context
             user_message = None
             if state.get("messages"):
-                user_message = state["messages"][-1].get("content", "")
+                last_message = state["messages"][-1]
+                if hasattr(last_message, 'content'):
+                    user_message = last_message.content
+                elif isinstance(last_message, dict):
+                    user_message = last_message.get("content", "")
+                else:
+                    user_message = str(last_message)
             
             # Use LLM for intelligent lightweight analysis
             llm_response = await self.llm_client.analyze_document_context(
@@ -831,7 +837,13 @@ class ContextAnalysisAgent(BaseAgent):
             # Get user message for context
             user_message = None
             if state.get("messages"):
-                user_message = state["messages"][-1].get("content", "")
+                last_message = state["messages"][-1]
+                if hasattr(last_message, 'content'):
+                    user_message = last_message.content
+                elif isinstance(last_message, dict):
+                    user_message = last_message.get("content", "")
+                else:
+                    user_message = str(last_message)
             
             # Use LLM for intelligent focused analysis
             llm_response = await self.llm_client.analyze_document_context(
@@ -924,7 +936,13 @@ class ContextAnalysisAgent(BaseAgent):
             # Get user message for context
             user_message = None
             if state.get("messages"):
-                user_message = state["messages"][-1].get("content", "")
+                last_message = state["messages"][-1]
+                if hasattr(last_message, 'content'):
+                    user_message = last_message.content
+                elif isinstance(last_message, dict):
+                    user_message = last_message.get("content", "")
+                else:
+                    user_message = str(last_message)
             
             # Use LLM for intelligent comprehensive analysis
             llm_response = await self.llm_client.analyze_document_context(

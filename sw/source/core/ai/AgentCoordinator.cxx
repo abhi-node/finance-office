@@ -18,6 +18,13 @@
 #include <tools/datetime.hxx>
 #include <rtl/ustrbuf.hxx>
 
+// LibreOffice Writer core includes for document access
+#include <wrtsh.hxx>
+#include <view.hxx>
+#include <swmodule.hxx>
+#include <doc.hxx>
+#include <docsh.hxx>
+
 using namespace css;
 using namespace css::uno;
 using namespace css::lang;
@@ -99,26 +106,12 @@ OUString SAL_CALL AgentCoordinator::processUserRequest(
         
         SAL_INFO("sw.ai", "Processing request " << sRequestId << ": " << rsRequest);
         
-        // Analyze request complexity for intelligent routing
-        RequestComplexity eComplexity = analyzeRequestComplexity(rsRequest);
-        
         // Extract and prepare document context
         Any aProcessedContext = extractDocumentContext(rDocumentContext);
         
-        // Route to appropriate processing workflow
-        OUString sResponse;
-        switch (eComplexity)
-        {
-            case RequestComplexity::Simple:
-                sResponse = processSimpleRequest(rsRequest, aProcessedContext);
-                break;
-            case RequestComplexity::Moderate:
-                sResponse = processModerateRequest(rsRequest, aProcessedContext);
-                break;
-            case RequestComplexity::Complex:
-                sResponse = processComplexRequest(rsRequest, aProcessedContext);
-                break;
-        }
+        // Process all requests through unified agent system
+        // Agent complexity analysis and routing now handled by DocumentMasterAgent
+        OUString sResponse = processUnifiedRequest(rsRequest, aProcessedContext, sRequestId);
         
         logActivity("Request " + sRequestId + " completed successfully");
         return sResponse;
@@ -280,6 +273,8 @@ void SAL_CALL AgentCoordinator::shutdown()
 AgentCoordinator::RequestComplexity AgentCoordinator::analyzeRequestComplexity(
     const OUString& rsRequest) const
 {
+    SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Analyzing request: " << rsRequest.copy(0, 100));
+    
     // Simple pattern matching for complexity analysis
     // This will be enhanced with proper NLP analysis in future phases
     
@@ -291,6 +286,7 @@ AgentCoordinator::RequestComplexity AgentCoordinator::analyzeRequestComplexity(
         sLowerRequest.indexOf("create chart") >= 0 ||
         sLowerRequest.indexOf("insert table") >= 0)
     {
+        SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as SIMPLE");
         return RequestComplexity::Simple;
     }
     
@@ -300,15 +296,17 @@ AgentCoordinator::RequestComplexity AgentCoordinator::analyzeRequestComplexity(
         sLowerRequest.indexOf("research") >= 0 ||
         sLowerRequest.indexOf("analysis") >= 0)
     {
+        SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as COMPLEX");
         return RequestComplexity::Complex;
     }
     
     // Default to moderate complexity
+    SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as MODERATE (default)");
     return RequestComplexity::Moderate;
 }
 
 OUString AgentCoordinator::processSimpleRequest(
-    const OUString& rsRequest, const Any& /* rContext */)
+    const OUString& rsRequest, const Any& rContext)
 {
     // Simple request processing - fast response for basic operations
     SAL_INFO("sw.ai", "Processing simple request: " << rsRequest);
@@ -325,9 +323,29 @@ OUString AgentCoordinator::processSimpleRequest(
         // For operations that need AI processing, use backend if available
         if (m_bOnlineMode && m_pNetworkClient)
         {
-            // Prepare simplified request for backend
-            OUString sJsonBody = R"({"request": ")" + rsRequest + 
-                               R"(", "type": "simple", "complexity": "low"})";
+            // Extract document context as JSON string from processed context
+            OUString sDocumentContext;
+            rContext >>= sDocumentContext;
+            
+            // Prepare request with real document context
+            OUStringBuffer sJsonBodyBuilder;
+            sJsonBodyBuilder.append("{\"request\": \"");
+            // Escape quotes in request
+            OUString sEscapedRequest = rsRequest;
+            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
+            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
+            sJsonBodyBuilder.append(sEscapedRequest);
+            sJsonBodyBuilder.append("\", \"type\": \"simple\", \"complexity\": \"low\"");
+            
+            // Add document context if available
+            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
+            {
+                sJsonBodyBuilder.append(", \"context\": ");
+                sJsonBodyBuilder.append(sDocumentContext);
+            }
+            sJsonBodyBuilder.append("}");
+            
+            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
             
             std::map<OUString, OUString> aHeaders;
             aHeaders["X-Request-Type"] = "simple";
@@ -391,7 +409,7 @@ OUString AgentCoordinator::processSimpleRequest(
 }
 
 OUString AgentCoordinator::processModerateRequest(
-    const OUString& rsRequest, const Any& /* rContext */)
+    const OUString& rsRequest, const Any& rContext)
 {
     // Moderate request processing - balanced workflow
     SAL_INFO("sw.ai", "Processing moderate request: " << rsRequest);
@@ -401,10 +419,29 @@ OUString AgentCoordinator::processModerateRequest(
         // Moderate operations typically require backend processing
         if (m_bOnlineMode && m_pNetworkClient)
         {
-            // Prepare request with document context
-            OUString sJsonBody = R"({"request": ")" + rsRequest + 
-                               R"(", "type": "moderate", "complexity": "medium", )" +
-                               R"("context": {"document": "current_doc"}})";
+            // Extract document context as JSON string from processed context
+            OUString sDocumentContext;
+            rContext >>= sDocumentContext;
+            
+            // Prepare request with real document context
+            OUStringBuffer sJsonBodyBuilder;
+            sJsonBodyBuilder.append("{\"request\": \"");
+            // Escape quotes in request
+            OUString sEscapedRequest = rsRequest;
+            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
+            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
+            sJsonBodyBuilder.append(sEscapedRequest);
+            sJsonBodyBuilder.append("\", \"type\": \"moderate\", \"complexity\": \"medium\"");
+            
+            // Add document context if available
+            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
+            {
+                sJsonBodyBuilder.append(", \"context\": ");
+                sJsonBodyBuilder.append(sDocumentContext);
+            }
+            sJsonBodyBuilder.append("}");
+            
+            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
             
             std::map<OUString, OUString> aHeaders;
             aHeaders["X-Request-Type"] = "moderate";
@@ -473,7 +510,7 @@ OUString AgentCoordinator::processModerateRequest(
 }
 
 OUString AgentCoordinator::processComplexRequest(
-    const OUString& rsRequest, const Any& /* rContext */)
+    const OUString& rsRequest, const Any& rContext)
 {
     // Complex request processing - full agent workflow
     SAL_INFO("sw.ai", "Processing complex request: " << rsRequest);
@@ -507,12 +544,34 @@ OUString AgentCoordinator::processComplexRequest(
             // Fallback to HTTP for complex requests
             SAL_INFO("sw.ai", "Using HTTP for complex request: " << sRequestId);
             
-            // Prepare comprehensive request with full context
-            OUString sJsonBody = R"({"request": ")" + rsRequest + 
-                               R"(", "type": "complex", "complexity": "high", "request_id": ")" + sRequestId +
-                               R"(", "context": {"document": "full_context", )" +
-                               R"("agents": ["DocumentMaster", "ContextAnalysis", "ContentGeneration", )" +
-                               R"("Formatting", "DataIntegration", "Validation", "Execution"]})";
+            // Extract document context as JSON string from processed context
+            OUString sDocumentContext;
+            rContext >>= sDocumentContext;
+            
+            // Prepare comprehensive request with real document context
+            OUStringBuffer sJsonBodyBuilder;
+            sJsonBodyBuilder.append("{\"request\": \"");
+            // Escape quotes in request
+            OUString sEscapedRequest = rsRequest;
+            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
+            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
+            sJsonBodyBuilder.append(sEscapedRequest);
+            sJsonBodyBuilder.append("\", \"type\": \"complex\", \"complexity\": \"high\", \"request_id\": \"");
+            sJsonBodyBuilder.append(sRequestId);
+            sJsonBodyBuilder.append("\"");
+            
+            // Add document context if available
+            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
+            {
+                sJsonBodyBuilder.append(", \"context\": ");
+                sJsonBodyBuilder.append(sDocumentContext);
+            }
+            
+            // Add agent workflow specification
+            sJsonBodyBuilder.append(", \"agents\": [\"DocumentMaster\", \"ContextAnalysis\", \"ContentGeneration\", \"Formatting\", \"DataIntegration\", \"Validation\", \"Execution\"]");
+            sJsonBodyBuilder.append("}");
+            
+            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
             
             std::map<OUString, OUString> aHeaders;
             aHeaders["X-Request-Type"] = "complex";
@@ -594,11 +653,234 @@ OUString AgentCoordinator::processComplexRequest(
     }
 }
 
+OUString AgentCoordinator::processUnifiedRequest(
+    const OUString& rsRequest, const Any& rContext, const OUString& rsRequestId)
+{
+    // Unified request processing through LangGraph agent system
+    // All complexity analysis and routing now handled by DocumentMasterAgent
+    SAL_INFO("sw.ai", "Processing unified request: " << rsRequest);
+    
+    try
+    {
+        // All requests now go through agent system for intelligent routing
+        if (m_bOnlineMode && m_pNetworkClient)
+        {
+            // Extract document context as JSON string from processed context
+            OUString sDocumentContext;
+            rContext >>= sDocumentContext;
+            
+            // Prepare unified request with all context and metadata
+            OUStringBuffer sJsonBodyBuilder;
+            sJsonBodyBuilder.append("{\"request\": \"");
+            
+            // Escape quotes in request
+            OUString sEscapedRequest = rsRequest;
+            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
+            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
+            sJsonBodyBuilder.append(sEscapedRequest);
+            
+            sJsonBodyBuilder.append("\", \"request_id\": \"");
+            sJsonBodyBuilder.append(rsRequestId);
+            sJsonBodyBuilder.append("\"");
+            
+            // Add document context if available
+            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
+            {
+                sJsonBodyBuilder.append(", \"context\": ");
+                sJsonBodyBuilder.append(sDocumentContext);
+            }
+            
+            // Add user preferences and session metadata
+            sJsonBodyBuilder.append(", \"user_preferences\": {\"language\": \"en-US\"}");
+            sJsonBodyBuilder.append(", \"session_id\": \"").append(rsRequestId).append("\"");
+            sJsonBodyBuilder.append("}");
+            
+            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
+            
+            // Configure headers for unified agent system
+            std::map<OUString, OUString> aHeaders;
+            aHeaders["X-Request-ID"] = rsRequestId;
+            aHeaders["X-Agent-System"] = "langgraph";
+            aHeaders["X-LibreOffice-Version"] = "24.8.0";
+            aHeaders["X-Integration-Layer"] = "agentcoordinator";
+            
+            // Send to unified agent endpoint
+            OUString sBackendUrl = "http://localhost:8000/api/agent";
+            sw::ai::NetworkClient::HttpResponse aResponse = 
+                m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
+            
+            if (aResponse.bSuccess)
+            {
+                // Parse enhanced JSON response format from agent system
+                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
+                if (aParsed.bSuccess)
+                {
+                    // Return response content for user display
+                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
+                    
+                    // PHASE 5 & 6: Translate and Execute operations
+                    if (hasExecutableOperations(aParsed))
+                    {
+                        SAL_INFO("sw.ai", "Unified request has " << aParsed.aOperations.size() << " operations to execute");
+                        
+                        // PHASE 5: Translate operations to UNO format
+                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
+                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
+                        
+                        // PHASE 6: Execute operations via DocumentOperations service
+                        if (!aTranslatedOps.empty())
+                        {
+                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
+                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
+                            SAL_INFO("sw.ai", "Unified request execution completed: " << sExecutionSummary);
+                            
+                            // Append execution summary to display response
+                            if (!sDisplayResponse.isEmpty())
+                            {
+                                sDisplayResponse += "\n\n";
+                            }
+                            sDisplayResponse += "✓ " + sExecutionSummary;
+                        }
+                    }
+                    
+                    return sDisplayResponse;
+                }
+                else
+                {
+                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
+                    return "AI processed (unified): " + rsRequest + " - Response format error";
+                }
+            }
+            else
+            {
+                SAL_WARN("sw.ai", "Unified agent system request failed: " << aResponse.sErrorMessage);
+                return "Error: Agent system unavailable - " + aResponse.sErrorMessage;
+            }
+        }
+        else
+        {
+            // Offline mode - basic fallback processing
+            SAL_WARN("sw.ai", "Unified request attempted in offline mode");
+            return "Error: AI agent system requires online connection";
+        }
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Exception in unified request processing: " << e.Message);
+        return "Error processing unified request: " + rsRequest;
+    }
+}
+
 Any AgentCoordinator::extractDocumentContext(const Any& rContext) const
 {
-    // Extract relevant document context for agent processing
-    // TODO: Implement proper context extraction
-    return rContext;
+    try
+    {
+        OUStringBuffer aJsonBuilder;
+        aJsonBuilder.append("{");
+        
+        // Start with basic context from input
+        Sequence<PropertyValue> aContextProps;
+        if (rContext >>= aContextProps)
+        {
+            Reference<text::XTextDocument> xTextDoc;
+            Reference<frame::XFrame> xFrame;
+            
+            // Extract references from AIPanel context
+            for (const auto& prop : aContextProps)
+            {
+                if (prop.Name == "Document")
+                {
+                    prop.Value >>= xTextDoc;
+                }
+                else if (prop.Name == "Frame")
+                {
+                    prop.Value >>= xFrame;
+                }
+            }
+            
+            // Add basic document information
+            if (xTextDoc.is())
+            {
+                aJsonBuilder.append("\"document_available\": true, ");
+            }
+            else
+            {
+                aJsonBuilder.append("\"document_available\": false, ");
+            }
+        }
+        
+        // Get active Writer view and shell for detailed context
+        SwView* pView = SwModule::GetFirstView();
+        if (pView)
+        {
+            SwWrtShell* pWrtShell = &pView->GetWrtShell();
+            if (pWrtShell)
+            {
+                // Extract cursor position information
+                aJsonBuilder.append("\"cursor_position\": {");
+                aJsonBuilder.append("\"line\": ");
+                aJsonBuilder.append(OUString::number(pWrtShell->GetLineNum()));
+                aJsonBuilder.append(", \"column\": ");
+                aJsonBuilder.append(OUString::number(pWrtShell->GetColumnNum()));
+                aJsonBuilder.append("}, ");
+                
+                // Extract selected text
+                aJsonBuilder.append("\"selected_text\": \"");
+                if (pWrtShell->HasSelection())
+                {
+                    OUString sSelectedText = pWrtShell->GetSelText();
+                    // Escape quotes and newlines for JSON
+                    sSelectedText = sSelectedText.replaceAll("\"", "\\\"");
+                    sSelectedText = sSelectedText.replaceAll("\n", "\\n");
+                    sSelectedText = sSelectedText.replaceAll("\r", "\\r");
+                    aJsonBuilder.append(sSelectedText);
+                }
+                aJsonBuilder.append("\", ");
+                
+                // Extract document structure information
+                aJsonBuilder.append("\"document_structure\": {");
+                SwDoc* pDoc = pWrtShell->GetDoc();
+                if (pDoc)
+                {
+                    aJsonBuilder.append("\"paragraph_count\": ");
+                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nPara));
+                    aJsonBuilder.append(", \"page_count\": ");
+                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nPage));
+                    aJsonBuilder.append(", \"word_count\": ");
+                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nWord));
+                    aJsonBuilder.append(", \"character_count\": ");
+                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nChar));
+                }
+                aJsonBuilder.append("}, ");
+                
+                // Extract current formatting state
+                aJsonBuilder.append("\"formatting_state\": {");
+                aJsonBuilder.append("\"has_selection\": ");
+                aJsonBuilder.append(pWrtShell->HasSelection() ? "true" : "false");
+                aJsonBuilder.append("}");
+            }
+            else
+            {
+                aJsonBuilder.append("\"error\": \"No WriterShell available\"");
+            }
+        }
+        else
+        {
+            aJsonBuilder.append("\"error\": \"No active Writer view\"");
+        }
+        
+        aJsonBuilder.append("}");
+        
+        OUString sJsonContext = aJsonBuilder.makeStringAndClear();
+        SAL_INFO("sw.ai", "Extracted document context JSON: " << sJsonContext);
+        
+        return Any(sJsonContext);
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Error extracting document context: " << e.Message);
+        return Any(OUString("{}"));
+    }
 }
 
 OUString AgentCoordinator::getCurrentDocumentInfo() const

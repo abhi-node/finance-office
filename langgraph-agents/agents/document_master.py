@@ -22,6 +22,7 @@ Key Responsibilities:
 import asyncio
 import re
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -184,6 +185,9 @@ class DocumentMasterAgent(BaseAgent):
     
     def _initialize_specialized_agents(self):
         """Initialize and register specialized agents"""
+        self.logger.info(f"DEBUG: AGENTS_AVAILABLE = {AGENTS_AVAILABLE}")
+        self.logger.info(f"DEBUG: Available agent classes: ContextAnalysisAgent={ContextAnalysisAgent}, ContentGenerationAgent={ContentGenerationAgent}, FormattingAgent={FormattingAgent}, DataIntegrationAgent={DataIntegrationAgent}, ValidationAgent={ValidationAgent}, ExecutionAgent={ExecutionAgent}")
+        
         if not AGENTS_AVAILABLE:
             self.logger.warning("Specialized agents not available, skipping initialization")
             return
@@ -191,42 +195,53 @@ class DocumentMasterAgent(BaseAgent):
         try:
             # Initialize ContextAnalysisAgent
             if ContextAnalysisAgent:
+                self.logger.info("DEBUG: Creating ContextAnalysisAgent...")
                 context_agent = ContextAnalysisAgent("context_analysis_agent")
-                self.register_agent(context_agent)
-                self.logger.info("Registered ContextAnalysisAgent")
+                success = self.register_agent(context_agent)
+                self.logger.info(f"DEBUG: Registered ContextAnalysisAgent - success: {success}")
             
             # Initialize ContentGenerationAgent
             if ContentGenerationAgent:
+                self.logger.info("DEBUG: Creating ContentGenerationAgent...")
                 content_agent = ContentGenerationAgent("content_generation_agent")
-                self.register_agent(content_agent)
-                self.logger.info("Registered ContentGenerationAgent")
+                success = self.register_agent(content_agent)
+                self.logger.info(f"DEBUG: Registered ContentGenerationAgent - success: {success}")
             
             # Initialize FormattingAgent
             if FormattingAgent:
+                self.logger.info("DEBUG: Creating FormattingAgent...")
                 formatting_agent = FormattingAgent("formatting_agent")
-                self.register_agent(formatting_agent)
-                self.logger.info("Registered FormattingAgent")
+                success = self.register_agent(formatting_agent)
+                self.logger.info(f"DEBUG: Registered FormattingAgent - success: {success}")
             
             # Initialize DataIntegrationAgent
             if DataIntegrationAgent:
+                self.logger.info("DEBUG: Creating DataIntegrationAgent...")
                 data_agent = DataIntegrationAgent("data_integration_agent")
-                self.register_agent(data_agent)
-                self.logger.info("Registered DataIntegrationAgent")
+                success = self.register_agent(data_agent)
+                self.logger.info(f"DEBUG: Registered DataIntegrationAgent - success: {success}")
             
             # Initialize ValidationAgent
             if ValidationAgent:
+                self.logger.info("DEBUG: Creating ValidationAgent...")
                 validation_agent = ValidationAgent("validation_agent")
-                self.register_agent(validation_agent)
-                self.logger.info("Registered ValidationAgent")
+                success = self.register_agent(validation_agent)
+                self.logger.info(f"DEBUG: Registered ValidationAgent - success: {success}")
             
             # Initialize ExecutionAgent
             if ExecutionAgent:
+                self.logger.info("DEBUG: Creating ExecutionAgent...")
                 execution_agent = ExecutionAgent("execution_agent")
-                self.register_agent(execution_agent)
-                self.logger.info("Registered ExecutionAgent")
+                success = self.register_agent(execution_agent)
+                self.logger.info(f"DEBUG: Registered ExecutionAgent - success: {success}")
+            
+            # Log final registered agents
+            self.logger.info(f"DEBUG: Final registered_agents count: {len(self.registered_agents)}")
+            self.logger.info(f"DEBUG: Final registered_agents keys: {list(self.registered_agents.keys())}")
                 
         except Exception as e:
             self.logger.error(f"Failed to initialize specialized agents: {e}")
+            self.logger.error(f"Exception details: {traceback.format_exc()}", exc_info=True)
     
     def _initialize_simple_patterns(self) -> Dict[str, List[str]]:
         """Initialize patterns for simple operations (1-2 seconds)."""
@@ -319,6 +334,10 @@ class DocumentMasterAgent(BaseAgent):
             AgentResult: Orchestrated results from coordinated agents
         """
         start_time = time.time()
+        
+        # DEBUG: Log process method entry
+        self.logger.info(f"DEBUG: DocumentMasterAgent.process() called with message: {message}")
+        self.logger.info(f"DEBUG: State current_task: {state.get('current_task', 'None')}")
         
         try:
             # Extract user request
@@ -657,12 +676,12 @@ class DocumentMasterAgent(BaseAgent):
     
     def _get_simple_workflow_agents(self, operation_type: str) -> List[str]:
         """Get agent list for simple workflow (minimal agents)."""
-        base_agents = ["context_analysis", "execution"]
+        base_agents = ["context_analysis_agent", "execution_agent"]
         
         if "chart" in operation_type or "table" in operation_type:
-            return ["context_analysis", "formatting", "validation", "execution"]
+            return ["context_analysis_agent", "formatting_agent", "validation_agent", "execution_agent"]
         elif "format" in operation_type:
-            return ["context_analysis", "formatting", "execution"]
+            return ["context_analysis_agent", "formatting_agent", "execution_agent"]
         else:
             return base_agents
     
@@ -671,13 +690,13 @@ class DocumentMasterAgent(BaseAgent):
         base_agents = []
         
         if "content" in operation_type or "writing" in operation_type:
-            base_agents = ["context_analysis", "content_generation", "formatting"]
+            base_agents = ["context_analysis_agent", "content_generation_agent", "formatting_agent"]
         elif "research" in operation_type:
-            base_agents = ["context_analysis", "data_integration", "content_generation"]
+            base_agents = ["context_analysis_agent", "data_integration_agent", "content_generation_agent"]
         elif "styling" in operation_type or "format" in operation_type:
-            base_agents = ["context_analysis", "formatting"]
+            base_agents = ["context_analysis_agent", "formatting_agent"]
         else:
-            base_agents = ["context_analysis", "content_generation", "formatting"]
+            base_agents = ["context_analysis_agent", "content_generation_agent", "formatting_agent"]
         
         # Add validation and execution agents if available
         if AGENTS_AVAILABLE:
@@ -691,10 +710,10 @@ class DocumentMasterAgent(BaseAgent):
     def _get_complex_workflow_agents(self, operation_type: str) -> List[str]:
         """Get agent list for complex workflow (full orchestration)."""
         base_agents = [
-            "context_analysis",
-            "data_integration", 
-            "content_generation",
-            "formatting"
+            "context_analysis_agent",
+            "data_integration_agent", 
+            "content_generation_agent",
+            "formatting_agent"
         ]
         
         # Add validation and execution agents if available
@@ -709,10 +728,10 @@ class DocumentMasterAgent(BaseAgent):
     def _get_complex_parallel_workflow(self, operation_type: str) -> tuple[List[str], List[List[str]]]:
         """Get agents and parallel groups for complex parallel workflow."""
         all_agents = [
-            "context_analysis",
-            "data_integration",
-            "content_generation", 
-            "formatting"
+            "context_analysis_agent",
+            "data_integration_agent",
+            "content_generation_agent", 
+            "formatting_agent"
         ]
         
         # Add validation and execution agents if available
@@ -724,11 +743,11 @@ class DocumentMasterAgent(BaseAgent):
         
         # Define parallel execution groups
         parallel_groups = [
-            ["context_analysis", "data_integration"],  # Can run in parallel
-            ["content_generation"],                    # Depends on both above
-            ["formatting"],                           # Depends on content
-            ["validation"],                           # Depends on formatting
-            ["execution"]                             # Final execution
+            ["context_analysis_agent", "data_integration_agent"],  # Can run in parallel
+            ["content_generation_agent"],                         # Depends on both above
+            ["formatting_agent"],                                # Depends on content
+            ["validation_agent"],                                # Depends on formatting
+            ["execution_agent"]                                  # Final execution
         ]
         
         return all_agents, parallel_groups
@@ -912,13 +931,19 @@ class DocumentMasterAgent(BaseAgent):
         """Execute simple workflow with minimal agents (1-2 seconds target)."""
         self.logger.info(f"Executing simple workflow: {plan.required_agents}")
         
+        # DEBUG: Log registered agents
+        self.logger.info(f"DEBUG: Registered agents: {list(self.registered_agents.keys())}")
+        self.logger.info(f"DEBUG: Required agents: {plan.required_agents}")
+        
         results = []
         current_state = state
         
         # Execute agents sequentially with optimization
         for agent_id in plan.required_agents:
+            self.logger.info(f"DEBUG: Checking agent_id '{agent_id}' in registered_agents")
             if agent_id not in self.registered_agents:
                 # Mock agent execution for now
+                self.logger.warning(f"DEBUG: Agent '{agent_id}' NOT FOUND in registered_agents - using mock execution")
                 result = AgentResult(
                     agent_id=agent_id,
                     success=True,
@@ -926,6 +951,7 @@ class DocumentMasterAgent(BaseAgent):
                     execution_time=0.2
                 )
             else:
+                self.logger.info(f"DEBUG: Agent '{agent_id}' FOUND - executing real agent")
                 agent = self.registered_agents[agent_id]
                 result = await agent.execute_with_monitoring(current_state, message)
             
@@ -945,13 +971,19 @@ class DocumentMasterAgent(BaseAgent):
         """Execute moderate workflow with focused agents (2-4 seconds target)."""
         self.logger.info(f"Executing moderate workflow: {plan.required_agents}")
         
+        # DEBUG: Log registered agents
+        self.logger.info(f"DEBUG: Registered agents: {list(self.registered_agents.keys())}")
+        self.logger.info(f"DEBUG: Required agents: {plan.required_agents}")
+        
         results = []
         current_state = state
         
         # Execute with some optimization hints applied
         for agent_id in plan.required_agents:
+            self.logger.info(f"DEBUG: Checking agent_id '{agent_id}' in registered_agents")
             if agent_id not in self.registered_agents:
                 # Mock agent execution
+                self.logger.warning(f"DEBUG: Agent '{agent_id}' NOT FOUND in registered_agents - using mock execution")
                 result = AgentResult(
                     agent_id=agent_id,
                     success=True,
@@ -959,6 +991,7 @@ class DocumentMasterAgent(BaseAgent):
                     execution_time=0.4
                 )
             else:
+                self.logger.info(f"DEBUG: Agent '{agent_id}' FOUND - executing real agent")
                 agent = self.registered_agents[agent_id]
                 result = await agent.execute_with_monitoring(current_state, message)
             

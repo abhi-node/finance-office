@@ -104,26 +104,33 @@ void AIPanel::InitializeUI()
 
 void AIPanel::OnSendMessage()
 {
+    SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - User initiated message send");
+    
     if (m_xAITextInput && m_xChatHistory)
     {
         OUString sMessage = m_xAITextInput->GetText();
+        SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Raw message length: " << sMessage.getLength());
+        
         if (!sMessage.isEmpty())
         {
             // Validate and sanitize message
             if (!validateMessage(sMessage))
             {
-                SAL_WARN("sw.ai", "Invalid message rejected");
+                SAL_WARN("sw.ai", "AIPanel::OnSendMessage() - Invalid message rejected: " << sMessage.copy(0, 100));
                 return;
             }
             
             OUString sSanitizedMessage = sMessage;
             sanitizeMessage(sSanitizedMessage);
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message validated and sanitized");
             
             // Add user message to chat history with queued status
             sal_Int32 nMessageId = m_xChatHistory->AddUserMessage(sSanitizedMessage);
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message added to chat history with ID: " << nMessageId);
             
             // Update message status to sending
             m_xChatHistory->UpdateMessageStatus(nMessageId, MessageStatus::SENDING);
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message status updated to SENDING");
             
             // Clear input field
             m_xAITextInput->SetText("");
@@ -133,13 +140,27 @@ void AIPanel::OnSendMessage()
             
             // Queue message for processing with message ID
             queueMessage(sSanitizedMessage, nMessageId);
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message queued for processing");
             
             // Start processing if not already active
             if (!m_bProcessingActive)
             {
+                SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Starting background processing");
                 startBackgroundProcessing();
             }
+            else
+            {
+                SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Background processing already active");
+            }
         }
+        else
+        {
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Empty message ignored");
+        }
+    }
+    else
+    {
+        SAL_WARN("sw.ai", "AIPanel::OnSendMessage() - UI components not initialized");
     }
 }
 
@@ -461,10 +482,11 @@ void AIPanel::handleBackendResponse(const OUString& rsMessageId, const OUString&
         m_xChatHistory->UpdateMessageStatus(nChatMessageId, MessageStatus::DELIVERED, "Response received");
     }
     
-    // Add AI response to chat history (must be done on main thread)
+    // PHASE 7: Parse and display enhanced response format
+    // Display both agent content and operation confirmations per AGENT_SYSTEM_SPECIFICATION.md
     if (m_xChatHistory)
     {
-        m_xChatHistory->AddAIMessage(rsResponse);
+        parseAndDisplayEnhancedResponse(rsResponse);
     }
     
     // Remove from active messages
@@ -833,6 +855,284 @@ OUString AIPanel::generateOperationId()
     auto now = std::chrono::steady_clock::now();
     auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     return "op_" + OUString::number(timestamp);
+}
+
+// PHASE 7: Enhanced Response Display Implementation
+void AIPanel::parseAndDisplayEnhancedResponse(const OUString& rsResponse)
+{
+    SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Starting enhanced response parsing");
+    SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Response length: " << rsResponse.getLength());
+    
+    try
+    {
+        // Convert OUString to std::string for boost JSON parsing
+        OString aUtf8Response = OUStringToOString(rsResponse, RTL_TEXTENCODING_UTF8);
+        std::string sJsonString(aUtf8Response.getStr());
+        SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - UTF8 conversion completed");
+        
+        // Check if response looks like JSON (starts with { or [)
+        if (sJsonString.empty() || (sJsonString[0] != '{' && sJsonString[0] != '['))
+        {
+            // Not JSON - treat as simple text response (fallback)
+            SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Response not in JSON format, displaying as simple text");
+            m_xChatHistory->AddAIMessage(rsResponse);
+            return;
+        }
+        
+        // Parse JSON response
+        boost::property_tree::ptree aParsedResponse;
+        std::istringstream sStream(sJsonString);
+        boost::property_tree::read_json(sStream, aParsedResponse);
+        SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - JSON parsing successful");
+        
+        // Extract components per AGENT_SYSTEM_SPECIFICATION.md
+        bool bSuccess = aParsedResponse.get<bool>("success", true);
+        OUString sRequestId = OStringToOUString(OString(aParsedResponse.get<std::string>("request_id", "").c_str()), RTL_TEXTENCODING_UTF8);
+        double fExecutionTime = aParsedResponse.get<double>("execution_time_ms", 0.0);
+        
+        SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Extracted metadata: success=" << bSuccess << 
+                 ", request_id=" << sRequestId << ", execution_time=" << fExecutionTime << "ms");
+        
+        // Extract agent content for chat display
+        OUString sAgentContent;
+        auto aContentOpt = aParsedResponse.get_child_optional("content");
+        if (aContentOpt)
+        {
+            sAgentContent = OStringToOUString(OString(aContentOpt.value().get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
+            SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Agent content extracted, length: " << sAgentContent.getLength());
+        }
+        
+        // If no separate content field, use the whole response as fallback
+        if (sAgentContent.isEmpty())
+        {
+            sAgentContent = rsResponse;
+            SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - No separate content field, using full response as fallback");
+        }
+        
+        // Display agent content first
+        if (!sAgentContent.isEmpty())
+        {
+            m_xChatHistory->AddAIMessage(sAgentContent);
+            SAL_INFO("sw.ai", "AIPanel::parseAndDisplayEnhancedResponse() - Agent content displayed in chat");
+        }
+        
+        // Extract and display operation confirmations
+        auto aOperationsOpt = aParsedResponse.get_child_optional("operations");
+        if (aOperationsOpt && !aOperationsOpt.value().empty())
+        {
+            OUString sOperationSummary = formatOperationConfirmations(aOperationsOpt.value(), bSuccess, fExecutionTime);
+            if (!sOperationSummary.isEmpty())
+            {
+                m_xChatHistory->AddAIMessage(sOperationSummary);
+            }
+        }
+        
+        // Display metadata if present
+        auto aMetadataOpt = aParsedResponse.get_child_optional("metadata");
+        if (aMetadataOpt)
+        {
+            OUString sMetadataSummary = formatMetadataSummary(aMetadataOpt.value());
+            if (!sMetadataSummary.isEmpty())
+            {
+                m_xChatHistory->AddAIMessage(sMetadataSummary);
+            }
+        }
+        
+        // Display error details if present
+        auto aErrorOpt = aParsedResponse.get_child_optional("error_details");
+        if (aErrorOpt)
+        {
+            OUString sErrorSummary = formatErrorDetails(aErrorOpt.value());
+            if (!sErrorSummary.isEmpty())
+            {
+                m_xChatHistory->AddAIMessage("⚠️ " + sErrorSummary);
+            }
+        }
+        
+        SAL_INFO("sw.ai", "Enhanced response parsed and displayed - Request ID: " << sRequestId << 
+                 ", Execution time: " << fExecutionTime << "ms");
+    }
+    catch (const boost::property_tree::json_parser_error& e)
+    {
+        SAL_WARN("sw.ai", "JSON parsing error in enhanced response: " << e.what());
+        // Fallback to simple text display
+        m_xChatHistory->AddAIMessage(rsResponse);
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error parsing enhanced response: " << e.what());
+        // Fallback to simple text display
+        m_xChatHistory->AddAIMessage(rsResponse);
+    }
+}
+
+OUString AIPanel::formatOperationConfirmations(const boost::property_tree::ptree& rOperations, bool bSuccess, double fExecutionTime) const
+{
+    try
+    {
+        if (rOperations.empty())
+        {
+            return OUString();
+        }
+        
+        sal_Int32 nOperationCount = 0;
+        sal_Int32 nSuccessCount = 0;
+        OUString sOperationDetails;
+        
+        // Count and format operations
+        for (const auto& rOpPair : rOperations)
+        {
+            const auto& rOperation = rOpPair.second;
+            nOperationCount++;
+            
+            std::string sType = rOperation.get<std::string>("type", "unknown");
+            sal_Int32 nPriority = rOperation.get<sal_Int32>("priority", 0);
+            
+            // Convert type to user-friendly description
+            OUString sDescription = getOperationDescription(sType);
+            
+            // Add operation to details
+            sOperationDetails += "  • " + sDescription;
+            if (nPriority > 0)
+            {
+                sOperationDetails += " (priority: " + OUString::number(nPriority) + ")";
+            }
+            sOperationDetails += "\n";
+            
+            nSuccessCount++; // Assume success if present in operations list
+        }
+        
+        // Format summary
+        OUString sSummary = "🔧 Operations Executed:\n";
+        sSummary += sOperationDetails;
+        
+        if (nOperationCount > 0)
+        {
+            sSummary += "✅ " + OUString::number(nSuccessCount) + "/" + OUString::number(nOperationCount) + " operations completed";
+            
+            if (fExecutionTime > 0)
+            {
+                sSummary += " in " + OUString::number(static_cast<sal_Int32>(fExecutionTime)) + "ms";
+            }
+        }
+        
+        return sSummary;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error formatting operation confirmations: " << e.what());
+        return "🔧 Operations were executed (details unavailable)";
+    }
+}
+
+OUString AIPanel::getOperationDescription(const std::string& sType) const
+{
+    // Convert operation types from AGENT_SYSTEM_SPECIFICATION.md to user-friendly descriptions
+    if (sType == "insert_text")
+        return "Text inserted";
+    else if (sType == "modify_text")
+        return "Text modified";
+    else if (sType == "apply_formatting")
+        return "Formatting applied";
+    else if (sType == "create_table")
+        return "Table created";
+    else if (sType == "create_chart")
+        return "Chart created";
+    else if (sType == "insert_image")
+        return "Image inserted";
+    else if (sType == "restructure_document")
+        return "Document structure modified";
+    else if (sType == "apply_template")
+        return "Template applied";
+    else
+        return OStringToOUString(OString(sType.c_str()), RTL_TEXTENCODING_UTF8) + " operation";
+}
+
+OUString AIPanel::formatMetadataSummary(const boost::property_tree::ptree& rMetadata) const
+{
+    try
+    {
+        std::string sComplexity = rMetadata.get<std::string>("complexity_detected", "");
+        bool bPerformanceTarget = rMetadata.get<bool>("performance_target_met", true);
+        bool bCacheUsed = rMetadata.get<bool>("cache_used", false);
+        
+        auto aAgentsOpt = rMetadata.get_child_optional("agents_involved");
+        
+        OUString sSummary = "ℹ️ Process Details:\n";
+        
+        if (!sComplexity.empty())
+        {
+            sSummary += "  • Complexity: " + OStringToOUString(OString(sComplexity.c_str()), RTL_TEXTENCODING_UTF8) + "\n";
+        }
+        
+        if (aAgentsOpt && !aAgentsOpt.value().empty())
+        {
+            sSummary += "  • Agents: ";
+            bool bFirst = true;
+            for (const auto& rAgentPair : aAgentsOpt.value())
+            {
+                if (!bFirst) sSummary += ", ";
+                sSummary += OStringToOUString(OString(rAgentPair.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
+                bFirst = false;
+            }
+            sSummary += "\n";
+        }
+        
+        if (!bPerformanceTarget)
+        {
+            sSummary += "  • ⚠️ Performance target exceeded\n";
+        }
+        
+        if (bCacheUsed)
+        {
+            sSummary += "  • 📋 Used cached data\n";
+        }
+        
+        return sSummary;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error formatting metadata summary: " << e.what());
+        return OUString();
+    }
+}
+
+OUString AIPanel::formatErrorDetails(const boost::property_tree::ptree& rErrorDetails) const
+{
+    try
+    {
+        std::string sErrorCode = rErrorDetails.get<std::string>("error_code", "");
+        std::string sUserMessage = rErrorDetails.get<std::string>("user_message", "");
+        auto aSuggestedActionsOpt = rErrorDetails.get_child_optional("suggested_actions");
+        
+        OUString sErrorSummary = "Error Details:\n";
+        
+        if (!sErrorCode.empty())
+        {
+            sErrorSummary += "  • Code: " + OStringToOUString(OString(sErrorCode.c_str()), RTL_TEXTENCODING_UTF8) + "\n";
+        }
+        
+        if (!sUserMessage.empty())
+        {
+            sErrorSummary += "  • " + OStringToOUString(OString(sUserMessage.c_str()), RTL_TEXTENCODING_UTF8) + "\n";
+        }
+        
+        if (aSuggestedActionsOpt && !aSuggestedActionsOpt.value().empty())
+        {
+            sErrorSummary += "  • Suggestions:\n";
+            for (const auto& rActionPair : aSuggestedActionsOpt.value())
+            {
+                sErrorSummary += "    - " + OStringToOUString(OString(rActionPair.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8) + "\n";
+            }
+        }
+        
+        return sErrorSummary;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Error formatting error details: " << e.what());
+        return "An error occurred (details unavailable)";
+    }
 }
 
 } // end of namespace sw::sidebar

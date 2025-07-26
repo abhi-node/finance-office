@@ -445,6 +445,151 @@ bool NetworkClient::applyProxySettings(HttpRequest& /*rRequest*/) const
     return true;
 }
 
+NetworkClient::HttpResponse NetworkClient::executePostRequest(
+    const HttpRequest& rRequest, const OUString& rsRequestId, RequestMetrics& rMetrics)
+{
+    HttpResponse aResponse;
+    
+    try
+    {
+        SAL_INFO("sw.ai", "Executing POST request " << rsRequestId << " to " << rRequest.sUrl);
+        
+        // For now, implement a simple HTTP POST using basic LibreOffice networking
+        // This is a simplified implementation for localhost communication
+        if (rRequest.sUrl.startsWith("http://localhost:"))
+        {
+            // Extract host, port, and path
+            OUString sUrl = rRequest.sUrl.copy(7); // Remove "http://"
+            sal_Int32 nColonPos = sUrl.indexOf(':');
+            sal_Int32 nSlashPos = sUrl.indexOf('/');
+            
+            if (nColonPos > 0 && nSlashPos > nColonPos)
+            {
+                OUString sHost = sUrl.copy(0, nColonPos);
+                OUString sPort = sUrl.copy(nColonPos + 1, nSlashPos - nColonPos - 1);
+                OUString sPath = sUrl.copy(nSlashPos);
+                
+                SAL_INFO("sw.ai", "POST to " << sHost << ":" << sPort << sPath);
+                
+                // For localhost testing, simulate successful response
+                // In a real implementation, this would use UCB or proper HTTP client
+                if (sHost == "localhost" && sPort == "8000")
+                {
+                    aResponse.nStatusCode = 200;
+                    aResponse.sStatusText = "OK";
+                    aResponse.bSuccess = true;
+                    
+                    // Create a mock JSON response that matches Python agent format exactly
+                    OUStringBuffer sResponseBody;
+                    sResponseBody.append("{");
+                    sResponseBody.append("\"request_id\": \"mock_response_");
+                    sResponseBody.append(rsRequestId);
+                    sResponseBody.append("\", ");
+                    sResponseBody.append("\"success\": true, ");
+                    sResponseBody.append("\"response_content\": \"This is a mock response for testing. Your request was processed successfully. Request: ");
+                    // Add truncated request body for debugging
+                    OUString sBodyPreview = rRequest.sBody.getLength() > 100 ? 
+                        rRequest.sBody.copy(0, 100) + "..." : rRequest.sBody;
+                    // Escape quotes and newlines for JSON
+                    sBodyPreview = sBodyPreview.replaceAll("\"", "\\\"");
+                    sBodyPreview = sBodyPreview.replaceAll("\n", "\\n");
+                    sResponseBody.append(sBodyPreview);
+                    sResponseBody.append("\", ");
+                    sResponseBody.append("\"operations\": [");
+                    sResponseBody.append("{\"type\": \"insertText\", \"parameters\": {\"text\": \"Mock operation executed for: ");
+                    sResponseBody.append(rsRequestId);
+                    sResponseBody.append("\", \"position\": \"cursor\"}}");
+                    sResponseBody.append("], ");
+                    sResponseBody.append("\"operation_summaries\": [\"Inserted mock text at cursor position\"], ");
+                    sResponseBody.append("\"content_changes\": {}, ");
+                    sResponseBody.append("\"formatting_changes\": {}, ");
+                    sResponseBody.append("\"warnings\": [], ");
+                    sResponseBody.append("\"metadata\": {");
+                    sResponseBody.append("\"complexity_detected\": \"simple\", ");
+                    sResponseBody.append("\"performance_target_met\": true, ");
+                    sResponseBody.append("\"processing_time_ms\": 150");
+                    sResponseBody.append("}, ");
+                    sResponseBody.append("\"execution_time_ms\": 150.0, ");
+                    sResponseBody.append("\"agent_results\": {}");
+                    sResponseBody.append("}");
+                    
+                    aResponse.sBody = sResponseBody.makeStringAndClear();
+                    aResponse.aHeaders["Content-Type"] = "application/json";
+                    
+                    SAL_INFO("sw.ai", "Mock response generated for request " << rsRequestId);
+                }
+                else
+                {
+                    aResponse.nStatusCode = 404;
+                    aResponse.sStatusText = "Not Found";
+                    aResponse.sErrorMessage = "Mock implementation only supports localhost:8000";
+                    aResponse.bSuccess = false;
+                }
+            }
+            else
+            {
+                aResponse.nStatusCode = 400;
+                aResponse.sStatusText = "Bad Request";
+                aResponse.sErrorMessage = "Invalid URL format";
+                aResponse.bSuccess = false;
+            }
+        }
+        else
+        {
+            aResponse.nStatusCode = 501;
+            aResponse.sStatusText = "Not Implemented";
+            aResponse.sErrorMessage = "Non-localhost URLs not yet implemented";
+            aResponse.bSuccess = false;
+        }
+        
+        rMetrics.aEndTime = std::chrono::steady_clock::now();
+        rMetrics.nRequestSize = rRequest.sBody.getLength();
+        rMetrics.nResponseSize = aResponse.sBody.getLength();
+        
+        // Store metrics
+        {
+            std::lock_guard<std::mutex> aGuard(m_aMutex);
+            m_aRequestMetrics[rsRequestId] = rMetrics;
+        }
+        
+        logRequest(rsRequestId, rRequest, &aResponse);
+        return aResponse;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "POST request " << rsRequestId << " failed: " << e.Message);
+        return handleNetworkError("executePostRequest", e);
+    }
+}
+
+NetworkClient::HttpResponse NetworkClient::executeGetRequest(
+    const HttpRequest& rRequest, const OUString& rsRequestId, RequestMetrics& rMetrics)
+{
+    HttpResponse aResponse;
+    
+    try
+    {
+        SAL_INFO("sw.ai", "Executing GET request " << rsRequestId << " to " << rRequest.sUrl);
+        
+        // Simple GET implementation for testing
+        aResponse.nStatusCode = 200;
+        aResponse.sStatusText = "OK";
+        aResponse.sBody = "{\"status\": \"GET request successful\"}";
+        aResponse.bSuccess = true;
+        
+        rMetrics.aEndTime = std::chrono::steady_clock::now();
+        rMetrics.nResponseSize = aResponse.sBody.getLength();
+        
+        logRequest(rsRequestId, rRequest, &aResponse);
+        return aResponse;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "GET request " << rsRequestId << " failed: " << e.Message);
+        return handleNetworkError("executeGetRequest", e);
+    }
+}
+
 bool NetworkClient::validateRequest(const HttpRequest& rRequest) const
 {
     if (rRequest.sUrl.isEmpty())

@@ -53,16 +53,8 @@ from agents.formatting import FormattingAgent
 from agents.data_integration import DataIntegrationAgent
 
 
-# Integration layer imports (dynamically loaded)
-try:
-    import uno
-    from com.sun.star.beans import PropertyValue
-    from com.sun.star.lang import IllegalArgumentException
-    PYUNO_AVAILABLE = True
-except ImportError:
-    PYUNO_AVAILABLE = False
-    # Fallback to ctypes if needed
-    import ctypes
+# No PyUNO dependencies - pure API integration
+PYUNO_AVAILABLE = False
 
 
 class IntegrationMethod(Enum):
@@ -86,7 +78,7 @@ class BridgeStatus(Enum):
 @dataclass
 class BridgeConfiguration:
     """Configuration for LangGraphBridge."""
-    integration_method: IntegrationMethod = IntegrationMethod.PYUNO
+    integration_method: IntegrationMethod = IntegrationMethod.HTTP_API
     max_concurrent_operations: int = 5
     operation_timeout_seconds: int = 30
     enable_progress_streaming: bool = True
@@ -163,89 +155,43 @@ class CppDocumentContext:
     """
     
     @staticmethod
-    def extract_uno_context(uno_context: Any) -> Dict[str, Any]:
+    def extract_json_context(json_context: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Extract document context from UNO structures.
+        Extract document context from JSON data (pure API mode).
         
         Args:
-            uno_context: UNO Any containing document context
+            json_context: JSON string or dictionary with context from C++
             
         Returns:
             Python dictionary with extracted context
         """
         try:
-            context = {}
-            
-            # Extract basic document information
-            if hasattr(uno_context, 'getValueTypeName'):
-                context['type'] = uno_context.getValueTypeName()
-            
-            # Try to extract as PropertyValue sequence
-            if hasattr(uno_context, 'value'):
-                if isinstance(uno_context.value, (list, tuple)):
-                    for prop in uno_context.value:
-                        if hasattr(prop, 'Name') and hasattr(prop, 'Value'):
-                            context[prop.Name] = CppDocumentContext._convert_uno_value(prop.Value)
-            
-            return context
-            
-        except Exception as e:
-            logging.warning(f"Failed to extract UNO context: {e}")
-            return {"error": f"Context extraction failed: {e}"}
-    
-    @staticmethod
-    def _convert_uno_value(value: Any) -> Any:
-        """Convert UNO values to Python types."""
-        try:
-            if hasattr(value, 'value'):
-                return CppDocumentContext._convert_uno_value(value.value)
-            elif isinstance(value, (str, int, float, bool)):
-                return value
-            elif hasattr(value, '__iter__') and not isinstance(value, str):
-                return [CppDocumentContext._convert_uno_value(item) for item in value]
+            if isinstance(json_context, str):
+                return json.loads(json_context)
+            elif isinstance(json_context, dict):
+                return json_context
             else:
-                return str(value)
-        except Exception:
-            return str(value)
+                return {"raw_context": str(json_context)}
+        except Exception as e:
+            logging.warning(f"Failed to extract JSON context: {e}")
+            return {"error": str(e), "raw_context": str(json_context)}
     
     @staticmethod
-    def create_uno_response(response_data: Dict[str, Any]) -> Any:
+    def create_json_response(response_data: Dict[str, Any]) -> str:
         """
-        Create UNO-compatible response structure.
+        Create JSON response for C++ HTTP communication.
         
         Args:
             response_data: Python dictionary with response data
             
         Returns:
-            UNO-compatible structure
+            JSON string for HTTP response
         """
-        if not PYUNO_AVAILABLE:
-            return json.dumps(response_data)
-        
         try:
-            # Create PropertyValue sequence
-            properties = []
-            for key, value in response_data.items():
-                prop = PropertyValue()
-                prop.Name = key
-                prop.Value = CppDocumentContext._convert_python_to_uno(value)
-                properties.append(prop)
-            
-            return uno.Any("[]com.sun.star.beans.PropertyValue", tuple(properties))
-            
+            return json.dumps(response_data, indent=2)
         except Exception as e:
-            logging.warning(f"Failed to create UNO response: {e}")
-            return json.dumps(response_data)
-    
-    @staticmethod
-    def _convert_python_to_uno(value: Any) -> Any:
-        """Convert Python values to UNO types."""
-        if isinstance(value, dict):
-            return json.dumps(value)
-        elif isinstance(value, (list, tuple)):
-            return [CppDocumentContext._convert_python_to_uno(item) for item in value]
-        else:
-            return value
+            logging.warning(f"Failed to create JSON response: {e}")
+            return json.dumps({"error": f"Response serialization failed: {e}"})
 
 
 class BaseIntegrationLayer(ABC):
@@ -276,66 +222,37 @@ class BaseIntegrationLayer(ABC):
         pass
 
 
-class PyUnoIntegrationLayer(BaseIntegrationLayer):
-    """PyUNO-based integration layer for direct UNO service communication."""
+class HttpApiIntegrationLayer(BaseIntegrationLayer):
+    """HTTP API-based integration layer for pure API communication."""
     
     def __init__(self, config: BridgeConfiguration):
         super().__init__(config)
-        self.uno_context = None
-        self.service_manager = None
-        self.component_context = None
+        self.api_available = True
     
     async def initialize(self) -> bool:
-        """Initialize PyUNO connection."""
-        if not PYUNO_AVAILABLE:
-            self.logger.error("PyUNO not available")
-            return False
-        
+        """Initialize HTTP API integration."""
         try:
-            # Initialize UNO context
-            import uno
-            from com.sun.star.connection import NoConnectException
-            
-            # Connect to LibreOffice
-            local_context = uno.getComponentContext()
-            resolver = local_context.ServiceManager.createInstanceWithContext(
-                "com.sun.star.bridge.UnoUrlResolver", local_context)
-            
-            # Attempt connection
-            socket_path = self.config.libreoffice_socket_path or "socket,host=localhost,port=2002"
-            try:
-                self.component_context = resolver.resolve(f"uno:{socket_path};urp;StarOffice.ComponentContext")
-                self.service_manager = self.component_context.ServiceManager
-                self.logger.info("PyUNO integration initialized successfully")
-                return True
-            except NoConnectException:
-                self.logger.warning("LibreOffice not running, using local context")
-                self.component_context = local_context
-                self.service_manager = local_context.ServiceManager
-                return True
-                
+            # HTTP API integration is always available - no special initialization needed
+            self.logger.info("HTTP API integration initialized successfully")
+            return True
         except Exception as e:
-            self.logger.error(f"PyUNO initialization failed: {e}")
+            self.logger.error(f"HTTP API initialization failed: {e}")
             return False
     
     async def shutdown(self) -> bool:
-        """Shutdown PyUNO connection."""
+        """Shutdown HTTP API integration."""
         try:
-            # Cleanup connections
-            self.uno_context = None
-            self.service_manager = None
-            self.component_context = None
-            self.logger.info("PyUNO integration shutdown complete")
+            self.api_available = False
+            self.logger.info("HTTP API integration shutdown complete")
             return True
         except Exception as e:
-            self.logger.error(f"PyUNO shutdown failed: {e}")
+            self.logger.error(f"HTTP API shutdown failed: {e}")
             return False
     
     async def send_progress_update(self, update: ProgressUpdate) -> bool:
-        """Send progress update via UNO services."""
+        """Send progress update through HTTP response."""
         try:
-            # In a real implementation, this would call specific UNO services
-            # to update the LibreOffice UI with progress information
+            # Progress updates are sent back through HTTP response
             self.logger.debug(f"Progress update: {update.operation_stage} - {update.progress_percentage:.1f}%")
             return True
         except Exception as e:
@@ -343,10 +260,10 @@ class PyUnoIntegrationLayer(BaseIntegrationLayer):
             return False
     
     async def send_response(self, response: OperationResponse) -> bool:
-        """Send final response via UNO services."""
+        """Send final response via HTTP JSON."""
         try:
-            # Convert response to UNO format
-            uno_response = CppDocumentContext.create_uno_response(asdict(response))
+            # Convert response to JSON format
+            json_response = CppDocumentContext.create_json_response(asdict(response))
             self.logger.info(f"Sent response for request {response.request_id}")
             return True
         except Exception as e:
@@ -354,55 +271,7 @@ class PyUnoIntegrationLayer(BaseIntegrationLayer):
             return False
 
 
-class CtypesIntegrationLayer(BaseIntegrationLayer):
-    """Ctypes-based integration layer for C++ library communication."""
-    
-    def __init__(self, config: BridgeConfiguration):
-        super().__init__(config)
-        self.lib_handle = None
-        self.callback_functions = {}
-    
-    async def initialize(self) -> bool:
-        """Initialize ctypes integration."""
-        try:
-            # In a real implementation, this would load the LibreOffice C++ library
-            self.logger.info("Ctypes integration initialized (mock)")
-            return True
-        except Exception as e:
-            self.logger.error(f"Ctypes initialization failed: {e}")
-            return False
-    
-    async def shutdown(self) -> bool:
-        """Shutdown ctypes integration."""
-        try:
-            if self.lib_handle:
-                # Cleanup library handle
-                self.lib_handle = None
-            self.logger.info("Ctypes integration shutdown complete")
-            return True
-        except Exception as e:
-            self.logger.error(f"Ctypes shutdown failed: {e}")
-            return False
-    
-    async def send_progress_update(self, update: ProgressUpdate) -> bool:
-        """Send progress update via ctypes calls."""
-        try:
-            # Mock implementation - would call C++ functions via ctypes
-            self.logger.debug(f"Ctypes progress: {update.operation_stage} - {update.progress_percentage:.1f}%")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to send ctypes progress update: {e}")
-            return False
-    
-    async def send_response(self, response: OperationResponse) -> bool:
-        """Send final response via ctypes calls."""
-        try:
-            # Mock implementation - would call C++ response functions
-            self.logger.info(f"Ctypes sent response for request {response.request_id}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to send ctypes response: {e}")
-            return False
+# CtypesIntegrationLayer removed - using pure HTTP API communication
 
 
 class LangGraphBridge:
@@ -433,6 +302,7 @@ class LangGraphBridge:
         # Component management
         self.integration_layer: Optional[BaseIntegrationLayer] = None
         self.agent_graph: Optional[StateGraph] = None
+        self.document_master_agent = None  # NEW: DocumentMasterAgent instance
         self.executor = ThreadPoolExecutor(max_workers=self.config.max_concurrent_operations)
         
         # Operation tracking
@@ -453,6 +323,7 @@ class LangGraphBridge:
         self._cleanup_thread = None
         self._shutdown_event = threading.Event()
         
+        self.logger.info("DEBUG: LangGraphBridge.__init__() called - new instance created")
         self.logger.info("LangGraphBridge initialized")
     
     def _setup_logging(self) -> logging.Logger:
@@ -507,12 +378,8 @@ class LangGraphBridge:
     async def _initialize_integration_layer(self) -> bool:
         """Initialize the C++ integration layer."""
         try:
-            if self.config.integration_method == IntegrationMethod.PYUNO:
-                self.integration_layer = PyUnoIntegrationLayer(self.config)
-            elif self.config.integration_method == IntegrationMethod.CTYPES:
-                self.integration_layer = CtypesIntegrationLayer(self.config)
-            else:
-                raise ValueError(f"Unsupported integration method: {self.config.integration_method}")
+            # Always use HTTP API integration (pure API mode)
+            self.integration_layer = HttpApiIntegrationLayer(self.config)
             
             return await self.integration_layer.initialize()
             
@@ -521,41 +388,29 @@ class LangGraphBridge:
             return False
     
     async def _initialize_agent_graph(self) -> bool:
-        """Initialize the LangGraph agent system."""
+        """Initialize DocumentMasterAgent - simplified approach with single orchestrator."""
         try:
-            # Create agent instances
-            agents = {}
-            
+            # Create only DocumentMasterAgent - it will handle all internal orchestration
             if self.config.enable_all_agents:
-                agents["document_master"] = DocumentMasterAgent("document_master_agent")
-                agents["context_analysis"] = ContextAnalysisAgent("context_analysis_agent")
-                agents["content_generation"] = ContentGenerationAgent("content_generation_agent")
-                agents["formatting"] = FormattingAgent("formatting_agent")
-                agents["data_integration"] = DataIntegrationAgent("data_integration_agent")
-            
-            # Build the LangGraph workflow
-            workflow = StateGraph(DocumentState)
-            
-            # Add agent nodes
-            for agent_name, agent in agents.items():
-                workflow.add_node(agent_name, self._create_agent_node(agent))
-            
-            # Define workflow edges (simplified for bridge initialization)
-            workflow.set_entry_point("document_master")
-            workflow.add_edge("document_master", "context_analysis")
-            workflow.add_edge("context_analysis", "content_generation")
-            workflow.add_edge("content_generation", "formatting")
-            workflow.add_edge("formatting", "data_integration")
-            workflow.set_finish_point("data_integration")
-            
-            # Compile the graph
-            self.agent_graph = workflow.compile()
-            
-            self.logger.info(f"Agent graph initialized with {len(agents)} agents")
-            return True
+                self.document_master_agent = DocumentMasterAgent("document_master_agent")
+                self.logger.info("DEBUG: DocumentMasterAgent created successfully")
+                
+                # Log registered agents for debugging
+                registered_agents = self.document_master_agent.get_registered_agents()
+                self.logger.info(f"DEBUG: DocumentMaster has {len(registered_agents)} registered agents: {list(registered_agents.keys())}")
+                
+                # No LangGraph workflow needed - DocumentMaster handles everything internally
+                self.agent_graph = None  # Not using LangGraph orchestration anymore
+                
+                self.logger.info("DocumentMasterAgent initialized - handling internal orchestration")
+                return True
+            else:
+                self.logger.error("All agents disabled in configuration")
+                return False
             
         except Exception as e:
-            self.logger.error(f"Agent graph initialization failed: {e}")
+            self.logger.error(f"DocumentMasterAgent initialization failed: {e}")
+            self.logger.error(f"Exception details: {traceback.format_exc()}")
             return False
     
     def _create_agent_node(self, agent):
@@ -682,6 +537,10 @@ class LangGraphBridge:
             start_time = time.time()
             self.operation_count += 1
             
+            self.logger.info(f"DEBUG: Bridge.process_cpp_request() called with request_id={request_id}")
+            self.logger.info(f"DEBUG: User message: {user_message}")
+            self.logger.info(f"DEBUG: Has document_master_agent: {hasattr(self, 'document_master_agent') and self.document_master_agent is not None}")
+            
             self.logger.info(f"Processing C++ request {request_id}: {user_message}")
             
             # Convert C++ document context to LangGraph DocumentState
@@ -700,29 +559,36 @@ class LangGraphBridge:
             # Track operation
             self.active_operations[request_id] = operation_request
             
-            # Process through agent graph
-            if self.agent_graph:
+            # Process through DocumentMasterAgent directly  
+            if hasattr(self, 'document_master_agent') and self.document_master_agent:
+                self.logger.info("DEBUG: Bridge has DocumentMasterAgent - starting processing")
+                
                 # Send progress update - starting processing
                 await self._send_progress_update(request_id, "initializing", 0.0, 
-                                               "Starting agent processing")
+                                               "Starting DocumentMasterAgent processing")
                 
                 final_state = None
                 progress_count = 0
                 total_agents = 5  # Approximate number of processing stages
                 
-                # Stream through LangGraph with progress updates
+                # Stream through DocumentMasterAgent with progress updates
+                self.logger.info("DEBUG: About to call _stream_agent_processing")
                 async for state_update in self._stream_agent_processing(document_state):
                     progress_count += 1
                     progress_percentage = min((progress_count / total_agents) * 100, 95.0)
+                    
+                    self.logger.info(f"DEBUG: Received state_update from DocumentMaster - progress: {progress_count}")
                     
                     await self._send_progress_update(
                         request_id, 
                         "processing", 
                         progress_percentage,
-                        f"Processing through agent {progress_count}/{total_agents}"
+                        f"Processing through DocumentMaster {progress_count}/{total_agents}"
                     )
                     
                     final_state = state_update
+                
+                self.logger.info("DEBUG: Finished processing through DocumentMaster")
                 
                 # Convert final state back to LibreOffice format
                 await self._send_progress_update(request_id, "finalizing", 95.0, 
@@ -751,11 +617,12 @@ class LangGraphBridge:
                                                "Processing completed successfully")
                 
             else:
-                # Fallback response if agent graph not available
+                # Fallback response if DocumentMasterAgent not available
+                self.logger.error("DEBUG: DocumentMasterAgent not available for processing!")
                 response = OperationResponse(
                     request_id=request_id,
                     success=False,
-                    error_message="Agent graph not initialized"
+                    error_message="DocumentMasterAgent not initialized"
                 )
                 self._update_performance_metrics(0, False)
             
@@ -767,7 +634,7 @@ class LangGraphBridge:
             if self.integration_layer:
                 await self.integration_layer.send_response(response)
             
-            return json.dumps(asdict(response))
+            return self._serialize_response(response)
             
         except Exception as e:
             execution_time_ms = (time.time() - start_time) * 1000
@@ -787,8 +654,61 @@ class LangGraphBridge:
             # Cleanup
             self.active_operations.pop(request_id, None)
             self.operation_results[request_id] = error_response
+            self.logger.debug(f"LangGraphBridge.process_cpp_request() - Cleaned up failed operation {request_id}")
             
-            return json.dumps(asdict(error_response))
+            return self._serialize_response(error_response)
+    
+    def _serialize_response(self, response: OperationResponse) -> str:
+        """
+        Serialize OperationResponse to JSON, handling LangChain message objects.
+        
+        Args:
+            response: OperationResponse to serialize
+            
+        Returns:
+            JSON string
+        """
+        try:
+            # Convert to dictionary
+            response_dict = asdict(response)
+            
+            # Convert any LangChain message objects to serializable format
+            response_dict = self._convert_messages_to_dict(response_dict)
+            
+            return json.dumps(response_dict)
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to serialize response: {e}")
+            # Fallback to basic response
+            return json.dumps({
+                "request_id": response.request_id,
+                "success": response.success,
+                "error_message": f"Serialization failed: {str(e)}",
+                "execution_time_ms": response.execution_time_ms
+            })
+    
+    def _convert_messages_to_dict(self, obj: Any) -> Any:
+        """
+        Recursively convert LangChain message objects to dictionaries.
+        
+        Args:
+            obj: Object to convert
+            
+        Returns:
+            Converted object with messages as dictionaries
+        """
+        if isinstance(obj, (HumanMessage, AIMessage, SystemMessage)):
+            return {
+                "type": obj.__class__.__name__,
+                "content": obj.content,
+                "additional_kwargs": getattr(obj, 'additional_kwargs', {})
+            }
+        elif isinstance(obj, dict):
+            return {key: self._convert_messages_to_dict(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_messages_to_dict(item) for item in obj]
+        else:
+            return obj
     
     async def _convert_cpp_context_to_document_state(self, user_message: str, 
                                                    cpp_context: Any) -> DocumentState:
@@ -864,27 +784,27 @@ class LangGraphBridge:
             elif isinstance(cpp_context, dict):
                 # Already a dictionary
                 context_dict = cpp_context
-            elif PYUNO_AVAILABLE and hasattr(cpp_context, 'getValueTypeName'):
-                # UNO Any object
-                context_dict = CppDocumentContext.extract_uno_context(cpp_context)
             else:
-                # Unknown type, try to convert to string
-                self.logger.warning(f"Unknown context type: {type(cpp_context)}")
-                context_dict = {"raw_context": str(cpp_context)}
+                # Try to extract as JSON context (pure API mode)
+                context_dict = CppDocumentContext.extract_json_context(cpp_context)
             
             # Map C++ context fields to DocumentState
+            self.logger.debug("LangGraphBridge._convert_cpp_context_to_document_state() - Mapping context fields to DocumentState")
             await self._map_document_context(context_dict, document_state)
             await self._map_cursor_context(context_dict, document_state)
             await self._map_document_structure(context_dict, document_state)
             await self._map_formatting_state(context_dict, document_state)
             await self._map_user_preferences(context_dict, document_state)
             
-            self.logger.debug(f"Successfully converted C++ context to DocumentState")
+            self.logger.info(f"LangGraphBridge._convert_cpp_context_to_document_state() - Successfully converted C++ context to DocumentState")
             return document_state
             
         except Exception as e:
-            self.logger.error(f"Failed to convert C++ context: {e}")
+            self.logger.error(f"LangGraphBridge._convert_cpp_context_to_document_state() - Failed to convert C++ context: {e}")
+            self.logger.error(f"LangGraphBridge._convert_cpp_context_to_document_state() - Exception details: {traceback.format_exc()}")
+            
             # Return minimal valid DocumentState
+            self.logger.warning("LangGraphBridge._convert_cpp_context_to_document_state() - Returning minimal DocumentState due to error")
             return DocumentState(
                 messages=[HumanMessage(content=user_message)],
                 current_task=user_message,
@@ -1278,7 +1198,7 @@ class LangGraphBridge:
     
     async def _stream_agent_processing(self, document_state: DocumentState) -> AsyncGenerator[DocumentState, None]:
         """
-        Stream agent processing with progress updates.
+        Stream agent processing through DocumentMasterAgent orchestration.
         
         Args:
             document_state: Initial document state
@@ -1287,171 +1207,202 @@ class LangGraphBridge:
             Updated document states from agent processing
         """
         try:
-            if not self.agent_graph:
+            if not hasattr(self, 'document_master_agent') or not self.document_master_agent:
+                self.logger.error("DEBUG: DocumentMasterAgent not available for processing")
                 yield document_state
                 return
             
-            # Process through agent graph
-            current_state = document_state
+            self.logger.info("DEBUG: Starting DocumentMasterAgent processing")
+            self.logger.info(f"DEBUG: Input document_state keys: {list(document_state.keys()) if isinstance(document_state, dict) else 'Not a dict'}")
             
-            # Stream through LangGraph
-            async for state_update in self.agent_graph.astream(current_state):
-                if state_update:
-                    current_state = state_update
-                    yield current_state
+            # Create HumanMessage from document state
+            user_message = None
+            if isinstance(document_state, dict) and 'current_task' in document_state:
+                user_message = HumanMessage(content=document_state['current_task'])
+                self.logger.info(f"DEBUG: Created HumanMessage with content: {document_state['current_task']}")
+            else:
+                self.logger.warning("DEBUG: No current_task found in document_state, using empty message")
+                user_message = HumanMessage(content="Process request")
+            
+            # Process through DocumentMasterAgent directly - it handles ALL orchestration internally
+            self.logger.info("DEBUG: Calling DocumentMasterAgent.process()")
+            agent_result = await self.document_master_agent.process(document_state, user_message)
+            
+            self.logger.info(f"DEBUG: DocumentMasterAgent.process() completed - success: {agent_result.success}")
+            self.logger.info(f"DEBUG: Agent result metadata: {agent_result.metadata}")
+            
+            # Update document state with the results
+            if agent_result.success and agent_result.state_updates:
+                self.logger.info(f"DEBUG: Applying state updates: {list(agent_result.state_updates.keys())}")
+                if isinstance(document_state, dict):
+                    document_state.update(agent_result.state_updates)
+                else:
+                    # Handle DocumentState object
+                    for key, value in agent_result.state_updates.items():
+                        setattr(document_state, key, value)
+            
+            # Add agent result information to state for response generation
+            document_state['agent_result'] = {
+                'success': agent_result.success,
+                'result': agent_result.result,
+                'execution_time': agent_result.execution_time,
+                'metadata': agent_result.metadata,
+                'warnings': agent_result.warnings,
+                'error': agent_result.error
+            }
+            
+            self.logger.info("DEBUG: Yielding final document state")
+            yield document_state
             
         except Exception as e:
-            self.logger.error(f"Agent processing stream failed: {e}")
+            self.logger.error(f"DocumentMasterAgent processing failed: {e}")
+            self.logger.error(f"Exception details: {traceback.format_exc()}")
             yield document_state
     
     async def _convert_agent_state_to_libreoffice_format(self, final_state: DocumentState, 
                                                        request_id: str) -> Dict[str, Any]:
         """
-        Convert final agent state to LibreOffice-compatible format with comprehensive
-        extraction of both operations AND chat response content.
+        Convert final agent state to LibreOffice-compatible format.
         
-        Enhanced to properly separate operations for execution from content for chat display.
+        Extracts information from DocumentMasterAgent orchestration results.
         """
         try:
+            self.logger.info("DEBUG: Converting agent state to LibreOffice format")
+            
             libreoffice_response = {
                 "request_id": request_id,
                 "status": "success",
                 "operations": [],
                 "content_changes": {},
                 "formatting_changes": {},
-                "response_content": "",  # NEW: Chat response for user
-                "operation_summaries": [],  # NEW: Human-readable operation descriptions
+                "response_content": "Request processed successfully.",
+                "operation_summaries": [],
+                "complexity_detected": "unknown",
+                "workflow_path": "unknown", 
+                "agents_used": [],
+                "execution_time_ms": 0.0,
+                "warnings": [],
+                "approval_required": [],
+                "validation_results": {},
+                "performance_metrics": {},
+                "optimization_recommendations": [],
+                "error_context": None,
+                "recovery_options": [],
                 "metadata": {}
             }
             
-            # Enhanced: Extract operations from final state with validation
+            # Extract information from DocumentMasterAgent result
+            if final_state and isinstance(final_state, dict) and "agent_result" in final_state:
+                agent_result = final_state["agent_result"]
+                self.logger.info(f"DEBUG: Found agent_result in final_state: success={agent_result.get('success')}")
+                
+                # Extract orchestration metadata from DocumentMaster
+                if agent_result.get("metadata") and "orchestration" in agent_result["metadata"]:
+                    orchestration = agent_result["metadata"]["orchestration"]
+                    libreoffice_response["complexity_detected"] = orchestration.get("complexity", "unknown")
+                    libreoffice_response["workflow_path"] = orchestration.get("workflow_path", "unknown")
+                    libreoffice_response["agents_used"] = orchestration.get("agents_used", [])
+                    libreoffice_response["execution_time_ms"] = orchestration.get("execution_time", 0) * 1000
+                    
+                    # Performance metrics
+                    libreoffice_response["performance_metrics"] = {
+                        "execution_time_ms": orchestration.get("execution_time", 0) * 1000,
+                        "complexity_detected": orchestration.get("complexity", "unknown"),
+                        "performance_target_met": orchestration.get("performance_target_met", False),
+                        "analysis_confidence": orchestration.get("analysis_confidence", 0.0),
+                        "agents_count": len(orchestration.get("agents_used", []))
+                    }
+                
+                # Extract actual agent results with operations
+                if agent_result.get("result") and isinstance(agent_result["result"], dict):
+                    result_data = agent_result["result"]
+                    
+                    # Extract operations from agent results
+                    if "operation_results" in result_data:
+                        operations = result_data["operation_results"]
+                        if isinstance(operations, list):
+                            valid_operations = []
+                            operation_summaries = []
+                            
+                            for op in operations:
+                                if isinstance(op, dict):
+                                    # Create properly formatted operation
+                                    clean_op = {
+                                        "operation_id": op.get("operation_id", f"op_{len(valid_operations)}"),
+                                        "operation_type": op.get("operation_type", "unknown"),
+                                        "parameters": op.get("parameters", {}),
+                                        "agent_id": op.get("agent_id", "unknown"),
+                                        "priority": op.get("priority", 0),
+                                        "status": op.get("status", "pending")
+                                    }
+                                    valid_operations.append(clean_op)
+                                    
+                                    # Create human-readable summary
+                                    summary = self._create_operation_summary(clean_op)
+                                    operation_summaries.append(summary)
+                            
+                            libreoffice_response["operations"] = valid_operations
+                            libreoffice_response["operation_summaries"] = operation_summaries
+                    
+                    # Extract response content
+                    if "response_content" in result_data:
+                        libreoffice_response["response_content"] = result_data["response_content"]
+                    elif "workflow_type" in result_data:
+                        workflow_type = result_data["workflow_type"]
+                        agents_executed = result_data.get("agents_executed", [])
+                        libreoffice_response["response_content"] = f"Processed request using {workflow_type} workflow with agents: {', '.join(agents_executed)}"
+                
+                # Extract warnings
+                if agent_result.get("warnings"):
+                    libreoffice_response["warnings"] = agent_result["warnings"]
+                
+                # Extract error information
+                if not agent_result.get("success") and agent_result.get("error"):
+                    libreoffice_response["error_context"] = agent_result["error"]
+                    libreoffice_response["status"] = "error"
+                
+                libreoffice_response["execution_time_ms"] = agent_result.get("execution_time", 0) * 1000
+            
+            # Extract standard operations from pending_operations if available
             if final_state and "pending_operations" in final_state:
                 operations = final_state["pending_operations"]
-                if isinstance(operations, list):
-                    # Validate and clean operations
-                    valid_operations = []
-                    operation_summaries = []
-                    
-                    for op in operations:
-                        if isinstance(op, dict) and "operation_type" in op:
-                            # Ensure operation has required fields
-                            clean_op = {
-                                "operation_id": op.get("operation_id", f"op_{len(valid_operations)}"),
-                                "operation_type": op.get("operation_type", "unknown"),
-                                "parameters": op.get("parameters", {}),
-                                "agent_id": op.get("agent_id", "unknown"),
-                                "priority": op.get("priority", 0),
-                                "status": op.get("status", "pending")
-                            }
-                            valid_operations.append(clean_op)
-                            
-                            # Create human-readable summary for each operation
-                            summary = self._create_operation_summary(clean_op)
-                            operation_summaries.append(summary)
-                    
-                    libreoffice_response["operations"] = valid_operations
-                    libreoffice_response["operation_summaries"] = operation_summaries
+                if isinstance(operations, list) and operations:
+                    self.logger.info(f"DEBUG: Found {len(operations)} pending operations")
+                    # Only add if we don't already have operations from agent_result
+                    if not libreoffice_response["operations"]:
+                        valid_operations = []
+                        operation_summaries = []
+                        
+                        for op in operations:
+                            if isinstance(op, dict) and "operation_type" in op:
+                                clean_op = {
+                                    "operation_id": op.get("operation_id", f"op_{len(valid_operations)}"),
+                                    "operation_type": op.get("operation_type", "unknown"),
+                                    "parameters": op.get("parameters", {}),
+                                    "agent_id": op.get("agent_id", "unknown"),
+                                    "priority": op.get("priority", 0),
+                                    "status": op.get("status", "pending")
+                                }
+                                valid_operations.append(clean_op)
+                                
+                                summary = self._create_operation_summary(clean_op)
+                                operation_summaries.append(summary)
+                        
+                        libreoffice_response["operations"] = valid_operations
+                        libreoffice_response["operation_summaries"] = operation_summaries
             
-            # Enhanced: Extract chat response content from multiple sources
-            response_content_parts = []
+            # Add basic metadata
+            libreoffice_response["metadata"].update({
+                "server_processing_time_ms": libreoffice_response["execution_time_ms"],
+                "bridge_integration": "langgraph",
+                "agent_orchestration_enabled": True,
+                "request_count": self.operation_count,
+                "server_uptime_seconds": time.time() - getattr(self, '_start_time', time.time())
+            })
             
-            # 1. Extract from generated content (primary content)
-            if final_state and "generated_content" in final_state:
-                generated = final_state["generated_content"]
-                if isinstance(generated, list):
-                    for content in generated:
-                        if isinstance(content, str):
-                            response_content_parts.append(content)
-                        elif isinstance(content, dict) and "content" in content:
-                            response_content_parts.append(content["content"])
-                elif isinstance(generated, str):
-                    response_content_parts.append(generated)
-                    
-                # Store for operations
-                libreoffice_response["content_changes"] = {
-                    "generated_content": generated
-                }
-            
-            # 2. Extract from messages (agent responses)
-            if final_state and "messages" in final_state:
-                messages = final_state["messages"]
-                if isinstance(messages, list):
-                    for message in messages:
-                        # Look for AI messages (agent responses)
-                        if isinstance(message, dict):
-                            if message.get("role") == "assistant" or message.get("type") == "ai":
-                                content = message.get("content", "")
-                                if content and content not in response_content_parts:
-                                    response_content_parts.append(content)
-                        # Handle LangChain message objects
-                        elif hasattr(message, 'content') and hasattr(message, '__class__'):
-                            if 'AI' in message.__class__.__name__:
-                                content = message.content
-                                if content and content not in response_content_parts:
-                                    response_content_parts.append(content)
-            
-            # 3. Extract from agent results (individual agent outputs)
-            if final_state and "agent_status" in final_state:
-                agent_status = final_state["agent_status"]
-                if isinstance(agent_status, dict):
-                    for agent_id, status_info in agent_status.items():
-                        if isinstance(status_info, dict) and "response" in status_info:
-                            agent_response = status_info["response"]
-                            if isinstance(agent_response, str) and agent_response:
-                                response_content_parts.append(f"[{agent_id}]: {agent_response}")
-            
-            # 4. Generate default response if no content found
-            if not response_content_parts:
-                if libreoffice_response["operations"]:
-                    operation_count = len(libreoffice_response["operations"])
-                    if operation_count == 1:
-                        response_content_parts.append("Operation prepared for execution.")
-                    else:
-                        response_content_parts.append(f"{operation_count} operations prepared for execution.")
-                else:
-                    response_content_parts.append("Request processed successfully.")
-            
-            # Combine all response content
-            libreoffice_response["response_content"] = " ".join(response_content_parts)
-            
-            # Enhanced: Extract formatting changes with details
-            if final_state and "formatting_state" in final_state:
-                formatting_state = final_state["formatting_state"]
-                libreoffice_response["formatting_changes"] = formatting_state
-                
-                # Add formatting summary to response
-                if isinstance(formatting_state, dict):
-                    formatting_summary = self._create_formatting_summary(formatting_state)
-                    if formatting_summary:
-                        libreoffice_response["response_content"] += f" {formatting_summary}"
-            
-            # Enhanced: Extract validation results and warnings
-            if final_state and "validation_results" in final_state:
-                validation = final_state["validation_results"]
-                if isinstance(validation, dict):
-                    warnings = []
-                    for validation_id, result in validation.items():
-                        if isinstance(result, dict) and not result.get("passed", True):
-                            warnings.append(result.get("message", f"Validation {validation_id} failed"))
-                    
-                    if warnings:
-                        libreoffice_response["warnings"] = warnings
-                        libreoffice_response["response_content"] += f" Note: {', '.join(warnings[:2])}"
-            
-            # Enhanced: Add comprehensive metadata
-            libreoffice_response["metadata"] = {
-                "processing_time": time.time(),
-                "agent_count": len(final_state.get("agent_status", {})),
-                "final_state_size": len(str(final_state)),
-                "operations_count": len(libreoffice_response["operations"]),
-                "response_length": len(libreoffice_response["response_content"]),
-                "has_formatting_changes": bool(libreoffice_response["formatting_changes"]),
-                "content_sources": {
-                    "generated_content": bool(final_state.get("generated_content")),
-                    "messages": bool(final_state.get("messages")),
-                    "agent_responses": bool(final_state.get("agent_status"))
-                }
-            }
+            self.logger.info(f"DEBUG: Final response - operations: {len(libreoffice_response['operations'])}, " +
+                           f"agents_used: {len(libreoffice_response['agents_used'])}, " +
+                           f"complexity: {libreoffice_response['complexity_detected']}")
             
             return libreoffice_response
             
@@ -1651,16 +1602,8 @@ async def initialize_bridge(config: Optional[BridgeConfiguration] = None) -> boo
     """
     # Create default config if none provided
     if config is None:
-        # Check environment variable for integration method
-        integration_method_str = os.environ.get("BRIDGE_INTEGRATION_METHOD", "pyuno").lower()
-        if integration_method_str == "ctypes":
-            integration_method = IntegrationMethod.CTYPES
-        elif integration_method_str == "http_api":
-            integration_method = IntegrationMethod.HTTP_API
-        elif integration_method_str == "websocket":
-            integration_method = IntegrationMethod.WEBSOCKET
-        else:
-            integration_method = IntegrationMethod.PYUNO
+        # Always use HTTP API integration method (pure API mode)
+        integration_method = IntegrationMethod.HTTP_API
         
         config = BridgeConfiguration(
             integration_method=integration_method,
@@ -1739,7 +1682,7 @@ if __name__ == "__main__":
     # Test bridge initialization
     async def test_bridge():
         config = BridgeConfiguration(
-            integration_method=IntegrationMethod.PYUNO,
+            integration_method=IntegrationMethod.HTTP_API,
             log_level="DEBUG"
         )
         
