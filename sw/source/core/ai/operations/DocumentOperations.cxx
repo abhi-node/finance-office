@@ -32,6 +32,7 @@
 #include <com/sun/star/embed/EmbedStates.hpp>
 #include <com/sun/star/document/XEmbeddedObjectSupplier.hpp>
 #include <com/sun/star/awt/Size.hpp>
+#include <com/sun/star/awt/FontSlant.hpp>
 #include <com/sun/star/container/XNameAccess.hpp>
 #include <com/sun/star/container/XIndexAccess.hpp>
 
@@ -256,11 +257,11 @@ OUString DocumentOperations::insertAgentText(const OUString& rsContent)
     }
 }
 
-OUString DocumentOperations::formatAgentText(const OUString& /*rsFormattingJson*/)
+OUString DocumentOperations::formatAgentText(const OUString& rsFormattingJson)
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
     
-    SAL_INFO("sw.ai", "FORMAT_TEXT: Starting text formatting");
+    SAL_INFO("sw.ai", "FORMAT_TEXT: Starting text formatting with JSON: " << rsFormattingJson);
     
     try
     {
@@ -302,16 +303,114 @@ OUString DocumentOperations::formatAgentText(const OUString& /*rsFormattingJson*
         Reference<XTextRange> xSelection = xViewCursor;
         if (!xViewCursor->isCollapsed())
         {
-            SAL_INFO("sw.ai", "FORMAT_TEXT: Applying bold formatting to selected text");
+            SAL_INFO("sw.ai", "FORMAT_TEXT: Applying formatting to selected text");
             
-            // Apply bold formatting using property
+            // Apply formatting using properties
             Reference<XPropertySet> xProps(xSelection, UNO_QUERY);
             if (xProps.is())
             {
-                // Use standard bold weight value (150.0 = bold in LibreOffice)
-                xProps->setPropertyValue("CharWeight", Any(150.0f));
-                SAL_INFO("sw.ai", "FORMAT_TEXT: Bold formatting applied successfully");
-                return "SUCCESS: Bold formatting applied to selected text";
+                // Parse the formatting JSON to extract properties
+                OUString sAppliedFormats;
+                
+                // Check for bold
+                if (rsFormattingJson.indexOf("\"bold\":\"true\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharWeight", Any(150.0f)); // Bold
+                    sAppliedFormats += "bold ";
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Applied bold");
+                }
+                else if (rsFormattingJson.indexOf("\"bold\":\"false\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharWeight", Any(100.0f)); // Normal
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Removed bold");
+                }
+                
+                // Check for italic
+                if (rsFormattingJson.indexOf("\"italic\":\"true\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharPosture", Any(css::awt::FontSlant_ITALIC));
+                    sAppliedFormats += "italic ";
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Applied italic");
+                }
+                else if (rsFormattingJson.indexOf("\"italic\":\"false\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharPosture", Any(css::awt::FontSlant_NONE));
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Removed italic");
+                }
+                
+                // Check for underline
+                if (rsFormattingJson.indexOf("\"underline\":\"true\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharUnderline", Any(sal_Int16(1))); // Single underline
+                    sAppliedFormats += "underline ";
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Applied underline");
+                }
+                else if (rsFormattingJson.indexOf("\"underline\":\"false\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharUnderline", Any(sal_Int16(0))); // No underline
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Removed underline");
+                }
+                
+                // Check for strikethrough
+                if (rsFormattingJson.indexOf("\"strikethrough\":\"true\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharStrikeout", Any(sal_Int16(1))); // Single strikethrough
+                    sAppliedFormats += "strikethrough ";
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Applied strikethrough");
+                }
+                else if (rsFormattingJson.indexOf("\"strikethrough\":\"false\"") >= 0)
+                {
+                    xProps->setPropertyValue("CharStrikeout", Any(sal_Int16(0))); // No strikethrough
+                    SAL_INFO("sw.ai", "FORMAT_TEXT: Removed strikethrough");
+                }
+                
+                // Check for font size
+                sal_Int32 nFontSizeStart = rsFormattingJson.indexOf("\"font_size\":\"");
+                if (nFontSizeStart >= 0)
+                {
+                    nFontSizeStart += 13; // Length of "font_size":"
+                    sal_Int32 nFontSizeEnd = rsFormattingJson.indexOf("\"", nFontSizeStart);
+                    if (nFontSizeEnd > nFontSizeStart)
+                    {
+                        OUString sFontSize = rsFormattingJson.copy(nFontSizeStart, nFontSizeEnd - nFontSizeStart);
+                        float fSize = sFontSize.toFloat();
+                        if (fSize > 0)
+                        {
+                            xProps->setPropertyValue("CharHeight", Any(fSize));
+                            sAppliedFormats += "size=" + sFontSize + " ";
+                            SAL_INFO("sw.ai", "FORMAT_TEXT: Applied font size: " << fSize);
+                        }
+                    }
+                }
+                
+                // Check for color
+                sal_Int32 nColorStart = rsFormattingJson.indexOf("\"color\":\"");
+                if (nColorStart >= 0)
+                {
+                    nColorStart += 9; // Length of "color":"
+                    sal_Int32 nColorEnd = rsFormattingJson.indexOf("\"", nColorStart);
+                    if (nColorEnd > nColorStart)
+                    {
+                        OUString sColor = rsFormattingJson.copy(nColorStart, nColorEnd - nColorStart);
+                        if (sColor.startsWith("#") && sColor.getLength() == 7)
+                        {
+                            // Convert hex color to integer
+                            OUString sHex = sColor.copy(1); // Remove #
+                            sal_Int32 nColor = sHex.toUInt32(16);
+                            xProps->setPropertyValue("CharColor", Any(nColor));
+                            sAppliedFormats += "color=" + sColor + " ";
+                            SAL_INFO("sw.ai", "FORMAT_TEXT: Applied color: " << sColor);
+                        }
+                    }
+                }
+                
+                if (sAppliedFormats.isEmpty())
+                {
+                    sAppliedFormats = "default formatting";
+                }
+                
+                SAL_INFO("sw.ai", "FORMAT_TEXT: Formatting applied successfully");
+                return "SUCCESS: Applied " + sAppliedFormats + "to selected text";
             }
             else
             {

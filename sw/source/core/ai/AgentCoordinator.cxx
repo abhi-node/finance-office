@@ -2703,8 +2703,34 @@ OUString AgentCoordinator::performOperationFromParsedData(const ParsedResponse& 
         }
         else if (sOperationType == "format")
         {
-            SAL_INFO("sw.ai", "Calling formatAgentText");
-            return m_pDocumentOperations->formatAgentText("{}"); // Simplified formatting
+            // Extract the formatting object from the parsed operation
+            OUStringBuffer aFormattingJson;
+            aFormattingJson.append("{");
+            
+            try {
+                auto formattingOpt = rOperation.get_child_optional("formatting");
+                if (formattingOpt) {
+                    bool bFirst = true;
+                    for (const auto& prop : formattingOpt.value()) {
+                        if (!bFirst) aFormattingJson.append(",");
+                        bFirst = false;
+                        
+                        aFormattingJson.append("\"");
+                        aFormattingJson.append(OUString::fromUtf8(prop.first.c_str()));
+                        aFormattingJson.append("\":\"");
+                        aFormattingJson.append(OUString::fromUtf8(prop.second.data().c_str()));
+                        aFormattingJson.append("\"");
+                    }
+                }
+            } catch (...) {
+                SAL_WARN("sw.ai", "Error extracting formatting properties");
+            }
+            
+            aFormattingJson.append("}");
+            OUString sFormattingJson = aFormattingJson.makeStringAndClear();
+            
+            SAL_INFO("sw.ai", "Calling formatAgentText with formatting: " << sFormattingJson);
+            return m_pDocumentOperations->formatAgentText(sFormattingJson);
         }
         else if (sOperationType == "table")
         {
