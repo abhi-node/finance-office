@@ -294,6 +294,20 @@ private:
      * @returns true if request is valid
      */
     bool validateRequest(const HttpRequest& rRequest) const;
+    
+    /**
+     * Make HTTP POST request to localhost using basic socket implementation
+     * 
+     * @param rsHost Target hostname (typically "localhost")
+     * @param nPort Target port number
+     * @param rsPath Request path (e.g., "/api/agent")
+     * @param rsBody JSON request body
+     * @param rHeaders HTTP headers map
+     * @returns HTTP response with status and body
+     */
+    HttpResponse makeHttpPostRequest(const OUString& rsHost, sal_Int32 nPort, 
+                                   const OUString& rsPath, const OUString& rsBody,
+                                   const std::map<OUString, OUString>& rHeaders);
 };
 
 } // namespace sw::ai

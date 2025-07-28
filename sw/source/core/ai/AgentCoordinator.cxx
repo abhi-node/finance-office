@@ -9,8 +9,8 @@
 
 #include "AgentCoordinator.hxx"
 #include "NetworkClient.hxx"
-#include "WebSocketClient.hxx"
 #include "ErrorRecoveryManager.hxx"
+#include "operations/DocumentOperations.hxx"
 
 #include <sal/log.hxx>
 #include <comphelper/processfactory.hxx>
@@ -18,12 +18,16 @@
 #include <tools/datetime.hxx>
 #include <rtl/ustrbuf.hxx>
 
+
 // LibreOffice Writer core includes for document access
 #include <wrtsh.hxx>
 #include <view.hxx>
 #include <swmodule.hxx>
 #include <doc.hxx>
 #include <docsh.hxx>
+#include <IDocumentStatistics.hxx>
+#include <docstat.hxx>
+#include <com/sun/star/text/XTextDocument.hpp>
 
 using namespace css;
 using namespace css::uno;
@@ -39,6 +43,10 @@ namespace sw::core::ai {
 constexpr OUStringLiteral IMPLEMENTATION_NAME = u"com.sun.star.comp.Writer.AIAgentCoordinator";
 constexpr OUStringLiteral SERVICE_NAME = u"com.sun.star.ai.AIAgentCoordinator";
 
+// Static callback mechanism for chat panel integration
+AgentCoordinator::ChatPanelCallback AgentCoordinator::s_pChatPanelCallback;
+std::mutex AgentCoordinator::s_aCallbackMutex;
+
 AgentCoordinator::AgentCoordinator(const Reference<XComponentContext>& xContext)
     : m_xContext(xContext)
     , m_bInitialized(false)
@@ -48,7 +56,6 @@ AgentCoordinator::AgentCoordinator(const Reference<XComponentContext>& xContext)
     , m_nMaxRetries(3)
     , m_nTimeoutMs(30000)
     , m_nMaxQueueSize(100)
-    , m_bEnableWebSocket(false)
     , m_bEnableOfflineMode(true)
 {
     SAL_INFO("sw.ai", "AgentCoordinator created");
@@ -58,12 +65,6 @@ AgentCoordinator::AgentCoordinator(const Reference<XComponentContext>& xContext)
     
     // Initialize network client in background
     initializeNetworkClient();
-    
-    // Initialize WebSocket client if enabled
-    if (m_bEnableWebSocket)
-    {
-        initializeWebSocketClient();
-    }
     
     // Initialize error recovery manager
     initializeErrorRecovery();
@@ -87,10 +88,15 @@ OUString SAL_CALL AgentCoordinator::processUserRequest(
     const OUString& rsRequest,
     const Any& rDocumentContext)
 {
+    SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - ENTRY - Request: " << rsRequest);
+    SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - NetworkClient status: " << (m_pNetworkClient ? "INITIALIZED" : "NOT_INITIALIZED"));
+    SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Online mode: " << (m_bOnlineMode ? "TRUE" : "FALSE"));
+    
     std::lock_guard<std::mutex> aGuard(m_aMutex);
     
     if (rsRequest.isEmpty())
     {
+        SAL_WARN("sw.ai", "AgentCoordinator::processUserRequest() - Empty request received");
         throw IllegalArgumentException("Request cannot be empty", 
                                        static_cast<cppu::OWeakObject*>(this), 0);
     }
@@ -182,10 +188,6 @@ void SAL_CALL AgentCoordinator::setConfiguration(
         {
             rProperty.Value >>= m_nMaxQueueSize;
         }
-        else if (rProperty.Name == "EnableWebSocket")
-        {
-            rProperty.Value >>= m_bEnableWebSocket;
-        }
         else if (rProperty.Name == "EnableOfflineMode")
         {
             rProperty.Value >>= m_bEnableOfflineMode;
@@ -204,14 +206,13 @@ Sequence<PropertyValue> SAL_CALL AgentCoordinator::getConfiguration()
 {
     std::lock_guard<std::mutex> aGuard(m_aMutex);
     
-    Sequence<PropertyValue> aConfig(5);
+    Sequence<PropertyValue> aConfig(4);
     PropertyValue* pConfig = aConfig.getArray();
     
     pConfig[0] = makeConfigProperty("MaxRetries", Any(m_nMaxRetries));
     pConfig[1] = makeConfigProperty("TimeoutMs", Any(m_nTimeoutMs));
     pConfig[2] = makeConfigProperty("MaxQueueSize", Any(m_nMaxQueueSize));
-    pConfig[3] = makeConfigProperty("EnableWebSocket", Any(m_bEnableWebSocket));
-    pConfig[4] = makeConfigProperty("EnableOfflineMode", Any(m_bEnableOfflineMode));
+    pConfig[3] = makeConfigProperty("EnableOfflineMode", Any(m_bEnableOfflineMode));
     
     return aConfig;
 }
@@ -270,388 +271,8 @@ void SAL_CALL AgentCoordinator::shutdown()
 
 // Private implementation methods
 
-AgentCoordinator::RequestComplexity AgentCoordinator::analyzeRequestComplexity(
-    const OUString& rsRequest) const
-{
-    SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Analyzing request: " << rsRequest.copy(0, 100));
-    
-    // Simple pattern matching for complexity analysis
-    // This will be enhanced with proper NLP analysis in future phases
-    
-    OUString sLowerRequest = rsRequest.toAsciiLowerCase();
-    
-    // Simple operations - direct formatting or basic commands
-    if (sLowerRequest.indexOf("bold") >= 0 ||
-        sLowerRequest.indexOf("font") >= 0 ||
-        sLowerRequest.indexOf("create chart") >= 0 ||
-        sLowerRequest.indexOf("insert table") >= 0)
-    {
-        SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as SIMPLE");
-        return RequestComplexity::Simple;
-    }
-    
-    // Complex operations - require external data or multi-step processing
-    if (sLowerRequest.indexOf("financial report") >= 0 ||
-        sLowerRequest.indexOf("market data") >= 0 ||
-        sLowerRequest.indexOf("research") >= 0 ||
-        sLowerRequest.indexOf("analysis") >= 0)
-    {
-        SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as COMPLEX");
-        return RequestComplexity::Complex;
-    }
-    
-    // Default to moderate complexity
-    SAL_INFO("sw.ai", "AgentCoordinator::analyzeRequestComplexity() - Request classified as MODERATE (default)");
-    return RequestComplexity::Moderate;
-}
 
-OUString AgentCoordinator::processSimpleRequest(
-    const OUString& rsRequest, const Any& rContext)
-{
-    // Simple request processing - fast response for basic operations
-    SAL_INFO("sw.ai", "Processing simple request: " << rsRequest);
-    
-    try
-    {
-        // For simple operations, try local processing first for speed
-        if (rsRequest.indexOf("bold") >= 0 || rsRequest.indexOf("font") >= 0)
-        {
-            // Local formatting operations don't need backend
-            return "Applied formatting: " + rsRequest;
-        }
-        
-        // For operations that need AI processing, use backend if available
-        if (m_bOnlineMode && m_pNetworkClient)
-        {
-            // Extract document context as JSON string from processed context
-            OUString sDocumentContext;
-            rContext >>= sDocumentContext;
-            
-            // Prepare request with real document context
-            OUStringBuffer sJsonBodyBuilder;
-            sJsonBodyBuilder.append("{\"request\": \"");
-            // Escape quotes in request
-            OUString sEscapedRequest = rsRequest;
-            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
-            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
-            sJsonBodyBuilder.append(sEscapedRequest);
-            sJsonBodyBuilder.append("\", \"type\": \"simple\", \"complexity\": \"low\"");
-            
-            // Add document context if available
-            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
-            {
-                sJsonBodyBuilder.append(", \"context\": ");
-                sJsonBodyBuilder.append(sDocumentContext);
-            }
-            sJsonBodyBuilder.append("}");
-            
-            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
-            
-            std::map<OUString, OUString> aHeaders;
-            aHeaders["X-Request-Type"] = "simple";
-            
-            OUString sBackendUrl = "http://localhost:8000/api/simple";
-            sw::ai::NetworkClient::HttpResponse aResponse = 
-                m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
-            
-            if (aResponse.bSuccess)
-            {
-                // Parse enhanced JSON response format
-                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
-                if (aParsed.bSuccess)
-                {
-                    // Return response content for user display
-                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
-                    
-                    // PHASE 5 & 6: Translate and Execute operations
-                    if (hasExecutableOperations(aParsed))
-                    {
-                        SAL_INFO("sw.ai", "Simple request has " << aParsed.aOperations.size() << " operations to execute");
-                        
-                        // PHASE 5: Translate operations to UNO format
-                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
-                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
-                        
-                        // PHASE 6: Execute operations via DocumentOperations service
-                        if (!aTranslatedOps.empty())
-                        {
-                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
-                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
-                            SAL_INFO("sw.ai", "Simple request execution completed: " << sExecutionSummary);
-                            
-                            // Append execution summary to display response
-                            if (!sDisplayResponse.isEmpty())
-                            {
-                                sDisplayResponse += "\n\n";
-                            }
-                            sDisplayResponse += "✓ " + sExecutionSummary;
-                        }
-                    }
-                    
-                    return sDisplayResponse;
-                }
-                else
-                {
-                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
-                    return "AI processed (simple): " + rsRequest + " - Response format error";
-                }
-            }
-        }
-        
-        // Fallback to local processing
-        return "Offline processed (simple): " + rsRequest;
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "Exception in simple request processing: " << e.Message);
-        return "Error processing request: " + rsRequest;
-    }
-}
 
-OUString AgentCoordinator::processModerateRequest(
-    const OUString& rsRequest, const Any& rContext)
-{
-    // Moderate request processing - balanced workflow
-    SAL_INFO("sw.ai", "Processing moderate request: " << rsRequest);
-    
-    try
-    {
-        // Moderate operations typically require backend processing
-        if (m_bOnlineMode && m_pNetworkClient)
-        {
-            // Extract document context as JSON string from processed context
-            OUString sDocumentContext;
-            rContext >>= sDocumentContext;
-            
-            // Prepare request with real document context
-            OUStringBuffer sJsonBodyBuilder;
-            sJsonBodyBuilder.append("{\"request\": \"");
-            // Escape quotes in request
-            OUString sEscapedRequest = rsRequest;
-            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
-            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
-            sJsonBodyBuilder.append(sEscapedRequest);
-            sJsonBodyBuilder.append("\", \"type\": \"moderate\", \"complexity\": \"medium\"");
-            
-            // Add document context if available
-            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
-            {
-                sJsonBodyBuilder.append(", \"context\": ");
-                sJsonBodyBuilder.append(sDocumentContext);
-            }
-            sJsonBodyBuilder.append("}");
-            
-            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
-            
-            std::map<OUString, OUString> aHeaders;
-            aHeaders["X-Request-Type"] = "moderate";
-            aHeaders["X-Include-Context"] = "true";
-            
-            OUString sBackendUrl = "http://localhost:8000/api/moderate";
-            sw::ai::NetworkClient::HttpResponse aResponse = 
-                m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
-            
-            if (aResponse.bSuccess)
-            {
-                // Parse enhanced JSON response format
-                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
-                if (aParsed.bSuccess)
-                {
-                    // Return response content for user display
-                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
-                    
-                    // PHASE 5 & 6: Translate and Execute operations
-                    if (hasExecutableOperations(aParsed))
-                    {
-                        SAL_INFO("sw.ai", "Moderate request has " << aParsed.aOperations.size() << " operations to execute");
-                        
-                        // PHASE 5: Translate operations to UNO format
-                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
-                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
-                        
-                        // PHASE 6: Execute operations via DocumentOperations service
-                        if (!aTranslatedOps.empty())
-                        {
-                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
-                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
-                            SAL_INFO("sw.ai", "Moderate request execution completed: " << sExecutionSummary);
-                            
-                            // Append execution summary to display response
-                            if (!sDisplayResponse.isEmpty())
-                            {
-                                sDisplayResponse += "\n\n";
-                            }
-                            sDisplayResponse += "✓ " + sExecutionSummary;
-                        }
-                    }
-                    
-                    return sDisplayResponse;
-                }
-                else
-                {
-                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
-                    return "AI processed (moderate): " + rsRequest + " - Response format error";
-                }
-            }
-            else
-            {
-                SAL_WARN("sw.ai", "Backend request failed, falling back to offline processing");
-            }
-        }
-        
-        // Fallback to simplified local processing
-        return "Offline processed (moderate): " + rsRequest;
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "Exception in moderate request processing: " << e.Message);
-        return "Error processing request: " + rsRequest;
-    }
-}
-
-OUString AgentCoordinator::processComplexRequest(
-    const OUString& rsRequest, const Any& rContext)
-{
-    // Complex request processing - full agent workflow
-    SAL_INFO("sw.ai", "Processing complex request: " << rsRequest);
-    
-    try
-    {
-        // Complex operations require full backend processing
-        if (m_bOnlineMode && m_pNetworkClient)
-        {
-            // Generate unique request ID for correlation
-            OUString sRequestId = generateRequestId();
-            
-            // Try WebSocket first for real-time updates during complex processing
-            if (isWebSocketEnabled())
-            {
-                SAL_INFO("sw.ai", "Using WebSocket for complex request: " << sRequestId);
-                
-                // Send initial request via WebSocket for streaming updates
-                bool bWebSocketSent = sendWebSocketMessage(rsRequest, sRequestId);
-                if (bWebSocketSent)
-                {
-                    // WebSocket request sent - will receive streaming updates
-                    return "Processing complex request via WebSocket (ID: " + sRequestId + ") - streaming updates enabled";
-                }
-                else
-                {
-                    SAL_WARN("sw.ai", "WebSocket send failed, falling back to HTTP");
-                }
-            }
-            
-            // Fallback to HTTP for complex requests
-            SAL_INFO("sw.ai", "Using HTTP for complex request: " << sRequestId);
-            
-            // Extract document context as JSON string from processed context
-            OUString sDocumentContext;
-            rContext >>= sDocumentContext;
-            
-            // Prepare comprehensive request with real document context
-            OUStringBuffer sJsonBodyBuilder;
-            sJsonBodyBuilder.append("{\"request\": \"");
-            // Escape quotes in request
-            OUString sEscapedRequest = rsRequest;
-            sEscapedRequest = sEscapedRequest.replaceAll("\"", "\\\"");
-            sEscapedRequest = sEscapedRequest.replaceAll("\n", "\\n");
-            sJsonBodyBuilder.append(sEscapedRequest);
-            sJsonBodyBuilder.append("\", \"type\": \"complex\", \"complexity\": \"high\", \"request_id\": \"");
-            sJsonBodyBuilder.append(sRequestId);
-            sJsonBodyBuilder.append("\"");
-            
-            // Add document context if available
-            if (!sDocumentContext.isEmpty() && sDocumentContext != "{}")
-            {
-                sJsonBodyBuilder.append(", \"context\": ");
-                sJsonBodyBuilder.append(sDocumentContext);
-            }
-            
-            // Add agent workflow specification
-            sJsonBodyBuilder.append(", \"agents\": [\"DocumentMaster\", \"ContextAnalysis\", \"ContentGeneration\", \"Formatting\", \"DataIntegration\", \"Validation\", \"Execution\"]");
-            sJsonBodyBuilder.append("}");
-            
-            OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
-            
-            std::map<OUString, OUString> aHeaders;
-            aHeaders["X-Request-Type"] = "complex";
-            aHeaders["X-Include-Context"] = "full";
-            aHeaders["X-Agent-Workflow"] = "complete";
-            aHeaders["X-Request-ID"] = sRequestId;
-            
-            OUString sBackendUrl = "http://localhost:8000/api/complex";
-            sw::ai::NetworkClient::HttpResponse aResponse = 
-                m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
-            
-            if (aResponse.bSuccess)
-            {
-                // Parse enhanced JSON response format
-                ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
-                if (aParsed.bSuccess)
-                {
-                    // Return response content for user display
-                    OUString sDisplayResponse = formatResponseForDisplay(aParsed);
-                    
-                    // PHASE 5: Translate operations to UNO format
-                    if (hasExecutableOperations(aParsed))
-                    {
-                        SAL_INFO("sw.ai", "Complex request has " << aParsed.aOperations.size() << " operations to execute");
-                        
-                        // Translate operations to UNO format
-                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
-                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
-                        
-                        // Log translated operations for verification
-                        for (size_t i = 0; i < aTranslatedOps.size(); ++i)
-                        {
-                            const auto& rOp = aTranslatedOps[i];
-                            SAL_INFO("sw.ai", "Translated Operation " << (i+1) << ": " << rOp.sOperationType << 
-                                     " (priority: " << rOp.nPriority << ", params: " << rOp.aParameters.getLength() << ")");
-                        }
-                        
-                        // PHASE 6: Execute operations via DocumentOperations service
-                        if (!aTranslatedOps.empty())
-                        {
-                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
-                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
-                            SAL_INFO("sw.ai", "Complex request execution completed: " << sExecutionSummary);
-                            
-                            // Append execution summary to display response
-                            if (!sDisplayResponse.isEmpty())
-                            {
-                                sDisplayResponse += "\n\n";
-                            }
-                            sDisplayResponse += "✓ " + sExecutionSummary;
-                        }
-                    }
-                    
-                    return sDisplayResponse;
-                }
-                else
-                {
-                    SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
-                    return "AI processed (complex): " + rsRequest + " - Response format error";
-                }
-            }
-            else
-            {
-                SAL_WARN("sw.ai", "Complex operation requires backend, operation failed");
-                return "Error: Complex operation requires AI backend connection";
-            }
-        }
-        else
-        {
-            // Complex operations cannot be processed offline
-            SAL_WARN("sw.ai", "Complex operation attempted in offline mode");
-            return "Error: Complex operations require online connection to AI backend";
-        }
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "Exception in complex request processing: " << e.Message);
-        return "Error processing complex request: " + rsRequest;
-    }
-}
 
 OUString AgentCoordinator::processUnifiedRequest(
     const OUString& rsRequest, const Any& rContext, const OUString& rsRequestId)
@@ -690,57 +311,67 @@ OUString AgentCoordinator::processUnifiedRequest(
                 sJsonBodyBuilder.append(sDocumentContext);
             }
             
-            // Add user preferences and session metadata
-            sJsonBodyBuilder.append(", \"user_preferences\": {\"language\": \"en-US\"}");
-            sJsonBodyBuilder.append(", \"session_id\": \"").append(rsRequestId).append("\"");
             sJsonBodyBuilder.append("}");
             
             OUString sJsonBody = sJsonBodyBuilder.makeStringAndClear();
             
-            // Configure headers for unified agent system
-            std::map<OUString, OUString> aHeaders;
-            aHeaders["X-Request-ID"] = rsRequestId;
-            aHeaders["X-Agent-System"] = "langgraph";
-            aHeaders["X-LibreOffice-Version"] = "24.8.0";
-            aHeaders["X-Integration-Layer"] = "agentcoordinator";
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Prepared JSON body: " << sJsonBody);
             
             // Send to unified agent endpoint
             OUString sBackendUrl = "http://localhost:8000/api/agent";
+            std::map<OUString, OUString> aHeaders;
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - About to send POST to: " << sBackendUrl);
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Request body length: " << sJsonBody.getLength());
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - NetworkClient pointer: " << (m_pNetworkClient ? "VALID" : "NULL"));
+            
+            if (!m_pNetworkClient)
+            {
+                SAL_WARN("sw.ai", "AgentCoordinator::processUserRequest() - NetworkClient is NULL, cannot send request");
+                return "Error: Network client not initialized";
+            }
+            
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Calling NetworkClient::postJson()");
             sw::ai::NetworkClient::HttpResponse aResponse = 
                 m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - NetworkClient::postJson() returned");
+            
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - HTTP request completed");
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Response success: " << (aResponse.bSuccess ? "TRUE" : "FALSE"));
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Response status code: " << aResponse.nStatusCode);
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Response body length: " << aResponse.sBody.getLength());
+            SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - Response body preview: " << aResponse.sBody.copy(0, std::min(200, aResponse.sBody.getLength())));
             
             if (aResponse.bSuccess)
             {
+                SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - HTTP request succeeded, parsing JSON response");
+                
                 // Parse enhanced JSON response format from agent system
                 ParsedResponse aParsed = parseEnhancedJsonResponse(aResponse.sBody);
+                SAL_INFO("sw.ai", "AgentCoordinator::processUserRequest() - JSON parsing completed, success: " << (aParsed.bSuccess ? "TRUE" : "FALSE"));
+                
                 if (aParsed.bSuccess)
                 {
                     // Return response content for user display
                     OUString sDisplayResponse = formatResponseForDisplay(aParsed);
                     
-                    // PHASE 5 & 6: Translate and Execute operations
+                    // NEW SIMPLIFIED WORKFLOW: Perform operation and render response
                     if (hasExecutableOperations(aParsed))
                     {
-                        SAL_INFO("sw.ai", "Unified request has " << aParsed.aOperations.size() << " operations to execute");
+                        SAL_INFO("sw.ai", "Executing operation from parsed agent response");
                         
-                        // PHASE 5: Translate operations to UNO format
-                        std::vector<TranslatedOperation> aTranslatedOps = translateOperationsToUno(aParsed);
-                        SAL_INFO("sw.ai", "Translated " << aTranslatedOps.size() << " operations to UNO format");
+                        // 1. Perform the operation using the parsed data directly (no re-parsing!)
+                        OUString sOperationResult = performOperationFromParsedData(aParsed);
+                        SAL_INFO("sw.ai", "Operation performed: " << sOperationResult);
                         
-                        // PHASE 6: Execute operations via DocumentOperations service
-                        if (!aTranslatedOps.empty())
-                        {
-                            std::vector<ExecutionResult> aExecutionResults = executeTranslatedOperations(aTranslatedOps);
-                            OUString sExecutionSummary = formatExecutionSummary(aExecutionResults);
-                            SAL_INFO("sw.ai", "Unified request execution completed: " << sExecutionSummary);
-                            
-                            // Append execution summary to display response
-                            if (!sDisplayResponse.isEmpty())
-                            {
-                                sDisplayResponse += "\n\n";
-                            }
-                            sDisplayResponse += "✓ " + sExecutionSummary;
-                        }
+                        // 2. Render the response in AI chat panel
+                        renderResponse(sDisplayResponse);
+                        
+                        return sOperationResult;
+                    }
+                    else
+                    {
+                        // No operations to execute, just render the response
+                        renderResponse(sDisplayResponse);
                     }
                     
                     return sDisplayResponse;
@@ -748,12 +379,14 @@ OUString AgentCoordinator::processUnifiedRequest(
                 else
                 {
                     SAL_WARN("sw.ai", "Failed to parse JSON response: " << aParsed.sErrorMessage);
-                    return "AI processed (unified): " + rsRequest + " - Response format error";
+                    SAL_WARN("sw.ai", "Raw response body that failed parsing: " << aResponse.sBody);
+                    return "AI processed (unified): " + rsRequest + " - Response format error: " + aParsed.sErrorMessage;
                 }
             }
             else
             {
-                SAL_WARN("sw.ai", "Unified agent system request failed: " << aResponse.sErrorMessage);
+                SAL_WARN("sw.ai", "Unified agent system request failed - Status: " << aResponse.nStatusCode << ", Error: " << aResponse.sErrorMessage);
+                SAL_WARN("sw.ai", "Failed request body was: " << sJsonBody);
                 return "Error: Agent system unavailable - " + aResponse.sErrorMessage;
             }
         }
@@ -782,7 +415,7 @@ Any AgentCoordinator::extractDocumentContext(const Any& rContext) const
         Sequence<PropertyValue> aContextProps;
         if (rContext >>= aContextProps)
         {
-            Reference<text::XTextDocument> xTextDoc;
+            Reference<css::text::XTextDocument> xTextDoc;
             Reference<frame::XFrame> xFrame;
             
             // Extract references from AIPanel context
@@ -818,10 +451,27 @@ Any AgentCoordinator::extractDocumentContext(const Any& rContext) const
             {
                 // Extract cursor position information
                 aJsonBuilder.append("\"cursor_position\": {");
-                aJsonBuilder.append("\"line\": ");
-                aJsonBuilder.append(OUString::number(pWrtShell->GetLineNum()));
-                aJsonBuilder.append(", \"column\": ");
-                aJsonBuilder.append(OUString::number(pWrtShell->GetColumnNum()));
+                SwCursorShell* pCursorShell = pWrtShell;
+                SwPaM* pCursor = pCursorShell->GetCursor();
+                if (pCursor)
+                {
+                    SwPosition* pPoint = pCursor->GetPoint();
+                    if (pPoint)
+                    {
+                        aJsonBuilder.append("\"node_index\": ");
+                        aJsonBuilder.append(OUString::number(static_cast<sal_Int32>(pPoint->nNode.GetIndex())));
+                        aJsonBuilder.append(", \"content_index\": ");
+                        aJsonBuilder.append(OUString::number(pPoint->nContent.GetIndex()));
+                    }
+                    else
+                    {
+                        aJsonBuilder.append("\"node_index\": 0, \"content_index\": 0");
+                    }
+                }
+                else
+                {
+                    aJsonBuilder.append("\"node_index\": 0, \"content_index\": 0");
+                }
                 aJsonBuilder.append("}, ");
                 
                 // Extract selected text
@@ -842,16 +492,54 @@ Any AgentCoordinator::extractDocumentContext(const Any& rContext) const
                 SwDoc* pDoc = pWrtShell->GetDoc();
                 if (pDoc)
                 {
+                    const SwDocStat& rStat = pDoc->getIDocumentStatistics().GetUpdatedDocStat(false, false);
                     aJsonBuilder.append("\"paragraph_count\": ");
-                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nPara));
+                    aJsonBuilder.append(OUString::number(rStat.nPara));
                     aJsonBuilder.append(", \"page_count\": ");
-                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nPage));
+                    aJsonBuilder.append(OUString::number(rStat.nPage));
                     aJsonBuilder.append(", \"word_count\": ");
-                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nWord));
+                    aJsonBuilder.append(OUString::number(rStat.nWord));
                     aJsonBuilder.append(", \"character_count\": ");
-                    aJsonBuilder.append(OUString::number(pDoc->getIDocumentStatistics().GetDocStat().nChar));
+                    aJsonBuilder.append(OUString::number(rStat.nChar));
+                }
+                else
+                {
+                    aJsonBuilder.append("\"paragraph_count\": 0");
+                    aJsonBuilder.append(", \"page_count\": 0");
+                    aJsonBuilder.append(", \"word_count\": 0");
+                    aJsonBuilder.append(", \"character_count\": 0");
                 }
                 aJsonBuilder.append("}, ");
+                
+                // Extract raw document content  
+                aJsonBuilder.append("\"document_content\": \"");
+                if (pDoc)
+                {
+                    // Save current cursor and selection state
+                    pWrtShell->PushMode();
+                    
+                    // Select all document content using proper method
+                    pWrtShell->SttEndDoc(true); // Go to start of document
+                    pWrtShell->SelAll(); // Select all content
+                    
+                    // Get the selected text (which is now the entire document)
+                    OUString sDocumentText = pWrtShell->GetSelText();
+                    
+                    // Restore original cursor position and selection
+                    pWrtShell->PopMode();
+                    
+                    // Escape special characters for JSON
+                    sDocumentText = sDocumentText.replaceAll("\\", "\\\\"); // Must be first!
+                    sDocumentText = sDocumentText.replaceAll("\"", "\\\"");
+                    sDocumentText = sDocumentText.replaceAll("\n", "\\n");
+                    sDocumentText = sDocumentText.replaceAll("\r", "\\r");
+                    sDocumentText = sDocumentText.replaceAll("\t", "\\t");
+                    sDocumentText = sDocumentText.replaceAll("\b", "\\b");
+                    sDocumentText = sDocumentText.replaceAll("\f", "\\f");
+                    
+                    aJsonBuilder.append(sDocumentText);
+                }
+                aJsonBuilder.append("\", ");
                 
                 // Extract current formatting state
                 aJsonBuilder.append("\"formatting_state\": {");
@@ -957,9 +645,8 @@ bool AgentCoordinator::sendToBackend(const OUString& rsMessage, const Any& /* rC
         aHeaders["Authorization"] = "Bearer your-api-key-here"; // TODO: Implement in Task 6.5
         aHeaders["Content-Type"] = "application/json";
         
-        // Send request to LangGraph backend
-        // TODO: Make URL configurable
-        OUString sBackendUrl = "http://localhost:8000/api/process";
+        // Send request to unified agent endpoint
+        OUString sBackendUrl = "http://localhost:8000/api/agent";
         
         sw::ai::NetworkClient::HttpResponse aResponse = 
             m_pNetworkClient->postJson(sBackendUrl, sJsonBody, aHeaders);
@@ -1182,6 +869,8 @@ AgentCoordinator::ParsedResponse AgentCoordinator::parseEnhancedJsonResponse(con
 {
     ParsedResponse aResult;
     
+    SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Input JSON length: " << rsJsonResponse.getLength());
+    
     try
     {
         // Convert OUString to std::string for boost property tree parsing
@@ -1193,78 +882,69 @@ AgentCoordinator::ParsedResponse AgentCoordinator::parseEnhancedJsonResponse(con
         std::istringstream aJsonStream(sJsonStd);
         boost::property_tree::read_json(aJsonStream, aTree);
         
-        // Extract basic response info
-        aResult.bSuccess = aTree.get<bool>("success", false);
-        aResult.sRequestId = OStringToOUString(OString(aTree.get<std::string>("request_id", "").c_str()), RTL_TEXTENCODING_UTF8);
+        // Parse data-models.md format: {"type": "insert", "response": "...", "content": "..."}
+        std::string sType = aTree.get<std::string>("type", "");
+        std::string sResponse = aTree.get<std::string>("response", "");
         
-        if (!aResult.bSuccess)
+        SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Type: " << sType.c_str() << ", Response length: " << sResponse.length());
+        
+        if (sType.empty())
         {
-            aResult.sErrorMessage = OStringToOUString(OString(aTree.get<std::string>("error_message", "Unknown error").c_str()), RTL_TEXTENCODING_UTF8);
+            aResult.bSuccess = false;
+            aResult.sErrorMessage = "Missing required 'type' field in agent response";
+            SAL_WARN("sw.ai", "parseEnhancedJsonResponse - Missing type field");
             return aResult;
         }
         
-        // Extract enhanced response fields
-        aResult.sResponseContent = OStringToOUString(OString(aTree.get<std::string>("response_content", "").c_str()), RTL_TEXTENCODING_UTF8);
+        // Set the human-readable response for display
+        aResult.sResponseContent = OUString::fromUtf8(sResponse);
         
-        // Extract operations array
-        auto aOperationsOpt = aTree.get_child_optional("operations");
-        if (aOperationsOpt)
+        // Create a single operation based on the type
+        boost::property_tree::ptree aOperation;
+        aOperation.put("type", sType);
+        
+        // Add operation-specific fields based on type
+        if (sType == "insert")
         {
-            for (const auto& rOperation : aOperationsOpt.value())
+            std::string sContent = aTree.get<std::string>("content", "");
+            aOperation.put("content", sContent);
+            SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Insert content length: " << sContent.length());
+        }
+        else if (sType == "format")
+        {
+            auto aFormattingOpt = aTree.get_child_optional("formatting");
+            if (aFormattingOpt)
             {
-                aResult.aOperations.push_back(rOperation.second);
+                aOperation.add_child("formatting", aFormattingOpt.value());
+                SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Formatting data found");
             }
         }
-        
-        // Extract operation summaries
-        auto aOperationSummariesOpt = aTree.get_child_optional("operation_summaries");
-        if (aOperationSummariesOpt)
+        else if (sType == "table")
         {
-            for (const auto& rSummary : aOperationSummariesOpt.value())
-            {
-                OUString sSummary = OStringToOUString(OString(rSummary.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
-                aResult.aOperationSummaries.push_back(sSummary);
-            }
+            int nRows = aTree.get<int>("rows", 3);
+            int nColumns = aTree.get<int>("columns", 4);
+            aOperation.put("rows", nRows);
+            aOperation.put("columns", nColumns);
+            SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Table: " << nRows << "x" << nColumns);
+        }
+        else if (sType == "chart")
+        {
+            std::string sChartType = aTree.get<std::string>("chart_type", "bar");
+            aOperation.put("chart_type", sChartType);
+            SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Chart type: " << sChartType.c_str());
         }
         
-        // Extract content and formatting changes
-        auto aContentChangesOpt = aTree.get_child_optional("content_changes");
-        if (aContentChangesOpt)
-        {
-            aResult.aContentChanges = aContentChangesOpt.value();
-        }
+        // Add the operation to our result
+        aResult.aOperations.push_back(aOperation);
         
-        auto aFormattingChangesOpt = aTree.get_child_optional("formatting_changes");
-        if (aFormattingChangesOpt)
-        {
-            aResult.aFormattingChanges = aFormattingChangesOpt.value();
-        }
+        // Create a summary for the operation
+        OUString sSummary = "Operation: " + OUString::fromUtf8(sType);
+        aResult.aOperationSummaries.push_back(sSummary);
         
-        // Extract warnings
-        auto aWarningsOpt = aTree.get_child_optional("warnings");
-        if (aWarningsOpt)
-        {
-            for (const auto& rWarning : aWarningsOpt.value())
-            {
-                OUString sWarning = OStringToOUString(OString(rWarning.second.get_value<std::string>().c_str()), RTL_TEXTENCODING_UTF8);
-                aResult.aWarnings.push_back(sWarning);
-            }
-        }
-        
-        // Extract metadata
-        auto aMetadataOpt = aTree.get_child_optional("metadata");
-        if (aMetadataOpt)
-        {
-            aResult.aMetadata = aMetadataOpt.value();
-        }
-        
-        // Set success if we got this far
+        // Set success 
         aResult.bSuccess = true;
         
-        SAL_INFO("sw.ai", "Successfully parsed enhanced JSON response: " << 
-                 aResult.aOperations.size() << " operations, " << 
-                 aResult.aOperationSummaries.size() << " summaries, " << 
-                 aResult.aWarnings.size() << " warnings");
+        SAL_INFO("sw.ai", "parseEnhancedJsonResponse - Successfully parsed agent response with 1 operation: " << sType.c_str());
         
         return aResult;
     }
@@ -1313,11 +993,11 @@ OUString AgentCoordinator::formatResponseForDisplay(const ParsedResponse& rParse
         
         if (rParsed.aOperations.size() == 1)
         {
-            sDisplayText += "✓ 1 operation prepared for execution";
+            sDisplayText += "[OK] 1 operation prepared for execution";
         }
         else
         {
-            sDisplayText += "✓ " + OUString::number(rParsed.aOperations.size()) + " operations prepared for execution";
+            sDisplayText += "[OK] " + OUString::number(rParsed.aOperations.size()) + " operations prepared for execution";
         }
         
         // Add operation summaries if available
@@ -1326,12 +1006,12 @@ OUString AgentCoordinator::formatResponseForDisplay(const ParsedResponse& rParse
             sDisplayText += ":";
             for (size_t i = 0; i < rParsed.aOperationSummaries.size() && i < 3; ++i)  // Limit to first 3 summaries
             {
-                sDisplayText += "\n• " + rParsed.aOperationSummaries[i];
+                sDisplayText += "\n- " + rParsed.aOperationSummaries[i];
             }
             
             if (rParsed.aOperationSummaries.size() > 3)
             {
-                sDisplayText += "\n• ... and " + OUString::number(rParsed.aOperationSummaries.size() - 3) + " more";
+                sDisplayText += "\n- ... and " + OUString::number(rParsed.aOperationSummaries.size() - 3) + " more";
             }
         }
     }
@@ -1344,10 +1024,10 @@ OUString AgentCoordinator::formatResponseForDisplay(const ParsedResponse& rParse
             sDisplayText += "\n\n";
         }
         
-        sDisplayText += "⚠ Warnings:";
+        sDisplayText += "[!] Warnings:";
         for (const auto& rsWarning : rParsed.aWarnings)
         {
-            sDisplayText += "\n• " + rsWarning;
+            sDisplayText += "\n- " + rsWarning;
         }
     }
     
@@ -2132,10 +1812,10 @@ std::vector<AgentCoordinator::ExecutionResult> AgentCoordinator::executeTranslat
     }
     
     // Initialize DocumentOperations service if needed
-    if (!m_xDocumentOperations)
+    if (!m_pDocumentOperations)
     {
         const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
-        if (!m_xDocumentOperations)
+        if (!m_pDocumentOperations)
         {
             SAL_WARN("sw.ai", "Failed to initialize DocumentOperations service");
             ExecutionResult aError;
@@ -2283,65 +1963,75 @@ bool AgentCoordinator::initializeDocumentOperationsService()
 {
     try
     {
-        if (m_xDocumentOperations.is())
+        if (m_pDocumentOperations)
         {
             return true; // Already initialized
         }
         
         if (!m_xContext.is())
         {
-            SAL_WARN("sw.ai", "No component context available for DocumentOperations service");
+            SAL_WARN("sw.ai", "INIT_DOCOPS: No component context available for DocumentOperations service");
             return false;
         }
         
-        // Create DocumentOperations service using UNO service manager
-        css::uno::Reference<css::lang::XMultiComponentFactory> xServiceManager = m_xContext->getServiceManager();
-        if (!xServiceManager.is())
+        SAL_INFO("sw.ai", "INIT_DOCOPS: Creating direct DocumentOperations instance");
+        
+        // Create direct instance of DocumentOperations
+        m_pDocumentOperations = std::make_unique<sw::core::ai::operations::DocumentOperations>(m_xContext);
+        
+        if (!m_pDocumentOperations)
         {
-            SAL_WARN("sw.ai", "No service manager available");
+            SAL_WARN("sw.ai", "INIT_DOCOPS: Failed to create DocumentOperations direct instance");
             return false;
         }
         
-        // Create the DocumentOperations service
-        css::uno::Reference<css::uno::XInterface> xService = xServiceManager->createInstanceWithContext(
-            "com.sun.star.ai.DocumentOperations", m_xContext);
-        
-        if (!xService.is())
+        // Initialize with current frame if available
+        if (m_xFrame.is())
         {
-            SAL_WARN("sw.ai", "Failed to create DocumentOperations service instance");
-            return false;
+            try
+            {
+                SAL_INFO("sw.ai", "INIT_DOCOPS: Initializing DocumentOperations with frame");
+                m_pDocumentOperations->initializeWithFrame(m_xFrame);
+                SAL_INFO("sw.ai", "INIT_DOCOPS: DocumentOperations initialized with frame successfully");
+            }
+            catch (const css::uno::Exception& e)
+            {
+                SAL_WARN("sw.ai", "INIT_DOCOPS: Failed to initialize DocumentOperations with frame: " << e.Message);
+                // Continue anyway - some operations might still work
+            }
         }
-        
-        // Query for XAIDocumentOperations interface
-        m_xDocumentOperations.set(xService, css::uno::UNO_QUERY);
-        if (!m_xDocumentOperations.is())
+        else
         {
-            SAL_WARN("sw.ai", "Failed to query XAIDocumentOperations interface");
-            return false;
+            SAL_WARN("sw.ai", "INIT_DOCOPS: No frame available for DocumentOperations initialization");
         }
         
-        SAL_INFO("sw.ai", "DocumentOperations service initialized successfully");
+        SAL_INFO("sw.ai", "INIT_DOCOPS: DocumentOperations direct instance created successfully");
         return true;
     }
     catch (const css::uno::Exception& e)
     {
-        SAL_WARN("sw.ai", "UNO Exception initializing DocumentOperations: " << e.Message);
+        SAL_WARN("sw.ai", "INIT_DOCOPS: UNO Exception creating DocumentOperations: " << e.Message);
         return false;
     }
     catch (const std::exception& e)
     {
-        SAL_WARN("sw.ai", "Exception initializing DocumentOperations: " << e.what());
+        SAL_WARN("sw.ai", "INIT_DOCOPS: std::exception creating DocumentOperations: " << e.what());
+        return false;
+    }
+    catch (...)
+    {
+        SAL_WARN("sw.ai", "INIT_DOCOPS: Unknown exception creating DocumentOperations");
         return false;
     }
 }
 
-css::uno::Reference<css::ai::XAIDocumentOperations> AgentCoordinator::getDocumentOperationsService() const
+sw::core::ai::operations::DocumentOperations* AgentCoordinator::getDocumentOperationsService() const
 {
-    if (!m_xDocumentOperations.is())
+    if (!m_pDocumentOperations)
     {
         const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
     }
-    return m_xDocumentOperations;
+    return m_pDocumentOperations.get();
 }
 
 // Specific operation execution methods
@@ -2352,36 +2042,26 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertTextOperation(c
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
+        sw::core::ai::operations::DocumentOperations* pDocOps = getDocumentOperationsService();
+        if (!pDocOps)
         {
             aResult.sErrorMessage = "DocumentOperations service not available for insertText";
             return aResult;
         }
         
-        // Extract parameters (text, position, formatting)
+        // Extract text parameter
         OUString sText;
-        css::uno::Any aPosition;
-        css::uno::Sequence<css::beans::PropertyValue> aFormatting;
-        
         for (const auto& rParam : rOperation.aParameters)
         {
             if (rParam.Name == "Text")
             {
                 rParam.Value >>= sText;
-            }
-            else if (rParam.Name == "Position")
-            {
-                aPosition = rParam.Value;
-            }
-            else if (rParam.Name == "Formatting")
-            {
-                rParam.Value >>= aFormatting;
+                break;
             }
         }
         
-        // Execute insertText operation via DocumentOperations
-        OUString sOperationId = xDocOps->insertText(sText, aPosition, aFormatting);
+        // Execute insertAgentText operation (simplified)
+        OUString sOperationId = pDocOps->insertAgentText(sText);
         
         aResult.bSuccess = true;
         aResult.sOperationId = sOperationId;
@@ -2403,31 +2083,26 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeFormatTextOperation(c
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
+        sw::core::ai::operations::DocumentOperations* pDocOps = getDocumentOperationsService();
+        if (!pDocOps)
         {
             aResult.sErrorMessage = "DocumentOperations service not available for formatText";
             return aResult;
         }
         
-        // Extract parameters (textRange, formatting)
-        css::uno::Any aTextRange;
-        css::uno::Sequence<css::beans::PropertyValue> aFormatting;
-        
+        // Extract formatting parameter as JSON string
+        OUString sFormattingJson = "{}"; // Default empty JSON
         for (const auto& rParam : rOperation.aParameters)
         {
-            if (rParam.Name == "TextRange")
+            if (rParam.Name == "FormattingJson")
             {
-                aTextRange = rParam.Value;
-            }
-            else if (rParam.Name == "Formatting")
-            {
-                rParam.Value >>= aFormatting;
+                rParam.Value >>= sFormattingJson;
+                break;
             }
         }
         
-        // Execute formatText operation via DocumentOperations
-        OUString sOperationId = xDocOps->formatText(aTextRange, aFormatting);
+        // Execute formatAgentText operation (simplified)
+        OUString sOperationId = pDocOps->formatAgentText(sFormattingJson);
         
         aResult.bSuccess = true;
         aResult.sOperationId = sOperationId;
@@ -2449,18 +2124,16 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeCreateTableOperation(
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
+        sw::core::ai::operations::DocumentOperations* pDocOps = getDocumentOperationsService();
+        if (!pDocOps)
         {
             aResult.sErrorMessage = "DocumentOperations service not available for createTable";
             return aResult;
         }
         
-        // Extract parameters (rows, columns, position, tableProperties)
-        sal_Int32 nRows = 1;
-        sal_Int32 nColumns = 1;
-        css::uno::Any aPosition;
-        css::uno::Sequence<css::beans::PropertyValue> aTableProperties;
+        // Extract parameters (rows, columns)
+        sal_Int32 nRows = 3;
+        sal_Int32 nColumns = 3;
         
         for (const auto& rParam : rOperation.aParameters)
         {
@@ -2472,18 +2145,10 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeCreateTableOperation(
             {
                 rParam.Value >>= nColumns;
             }
-            else if (rParam.Name == "Position")
-            {
-                aPosition = rParam.Value;
-            }
-            else if (rParam.Name == "TableProperties")
-            {
-                rParam.Value >>= aTableProperties;
-            }
         }
         
-        // Execute createTable operation via DocumentOperations
-        OUString sOperationId = xDocOps->createTable(nRows, nColumns, aPosition, aTableProperties);
+        // Execute insertAgentTable operation (simplified)
+        OUString sOperationId = pDocOps->insertAgentTable(nRows, nColumns);
         
         aResult.bSuccess = true;
         aResult.sOperationId = sOperationId;
@@ -2505,41 +2170,26 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertChartOperation(
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
+        sw::core::ai::operations::DocumentOperations* pDocOps = getDocumentOperationsService();
+        if (!pDocOps)
         {
             aResult.sErrorMessage = "DocumentOperations service not available for insertChart";
             return aResult;
         }
         
-        // Extract parameters (chartData, chartType, position, chartProperties)
-        css::uno::Any aChartData;
-        OUString sChartType;
-        css::uno::Any aPosition;
-        css::uno::Sequence<css::beans::PropertyValue> aChartProperties;
-        
+        // Extract chart type parameter
+        OUString sChartType = "bar"; // Default chart type
         for (const auto& rParam : rOperation.aParameters)
         {
-            if (rParam.Name == "ChartData")
-            {
-                aChartData = rParam.Value;
-            }
-            else if (rParam.Name == "ChartType")
+            if (rParam.Name == "ChartType")
             {
                 rParam.Value >>= sChartType;
-            }
-            else if (rParam.Name == "Position")
-            {
-                aPosition = rParam.Value;
-            }
-            else if (rParam.Name == "ChartProperties")
-            {
-                rParam.Value >>= aChartProperties;
+                break;
             }
         }
         
-        // Execute insertChart operation via DocumentOperations
-        OUString sOperationId = xDocOps->insertChart(aChartData, sChartType, aPosition, aChartProperties);
+        // Execute insertAgentChart operation (simplified)
+        OUString sOperationId = pDocOps->insertAgentChart(sChartType);
         
         aResult.bSuccess = true;
         aResult.sOperationId = sOperationId;
@@ -2561,41 +2211,11 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeInsertGraphicOperatio
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
-        {
-            aResult.sErrorMessage = "DocumentOperations service not available for insertGraphic";
-            return aResult;
-        }
+        // NOTE: insertGraphic not implemented in simplified DocumentOperations
+        aResult.sErrorMessage = "insertGraphic operation not implemented in simplified interface";
+        return aResult;
         
-        // Extract parameters (graphicData, position, graphicProperties)
-        css::uno::Any aGraphicData;
-        css::uno::Any aPosition;
-        css::uno::Sequence<css::beans::PropertyValue> aGraphicProperties;
-        
-        for (const auto& rParam : rOperation.aParameters)
-        {
-            if (rParam.Name == "GraphicData")
-            {
-                aGraphicData = rParam.Value;
-            }
-            else if (rParam.Name == "Position")
-            {
-                aPosition = rParam.Value;
-            }
-            else if (rParam.Name == "GraphicProperties")
-            {
-                rParam.Value >>= aGraphicProperties;
-            }
-        }
-        
-        // Execute insertGraphic operation via DocumentOperations
-        OUString sOperationId = xDocOps->insertGraphic(aGraphicData, aPosition, aGraphicProperties);
-        
-        aResult.bSuccess = true;
-        aResult.sOperationId = sOperationId;
-        
-        SAL_INFO("sw.ai", "insertGraphic executed successfully - ID: " << sOperationId);
+        SAL_INFO("sw.ai", "insertGraphic operation not implemented in simplified interface");
         return aResult;
     }
     catch (const css::uno::Exception& e)
@@ -2612,41 +2232,9 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeApplyStyleOperation(c
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
-        {
-            aResult.sErrorMessage = "DocumentOperations service not available for applyStyle";
-            return aResult;
-        }
-        
-        // Extract parameters (target, styleName, styleProperties)
-        css::uno::Any aTarget;
-        OUString sStyleName;
-        css::uno::Sequence<css::beans::PropertyValue> aStyleProperties;
-        
-        for (const auto& rParam : rOperation.aParameters)
-        {
-            if (rParam.Name == "Target")
-            {
-                aTarget = rParam.Value;
-            }
-            else if (rParam.Name == "StyleName")
-            {
-                rParam.Value >>= sStyleName;
-            }
-            else if (rParam.Name == "StyleProperties")
-            {
-                rParam.Value >>= aStyleProperties;
-            }
-        }
-        
-        // Execute applyStyle operation via DocumentOperations
-        OUString sOperationId = xDocOps->applyStyle(aTarget, sStyleName, aStyleProperties);
-        
-        aResult.bSuccess = true;
-        aResult.sOperationId = sOperationId;
-        
-        SAL_INFO("sw.ai", "applyStyle executed successfully - ID: " << sOperationId << " (style: " << sStyleName << ")");
+        // NOTE: applyStyle not implemented in simplified DocumentOperations
+        aResult.sErrorMessage = "applyStyle operation not implemented in simplified interface";
+        SAL_INFO("sw.ai", "applyStyle operation not implemented in simplified interface");
         return aResult;
     }
     catch (const css::uno::Exception& e)
@@ -2663,41 +2251,9 @@ AgentCoordinator::ExecutionResult AgentCoordinator::executeCreateSectionOperatio
     
     try
     {
-        css::uno::Reference<css::ai::XAIDocumentOperations> xDocOps = getDocumentOperationsService();
-        if (!xDocOps.is())
-        {
-            aResult.sErrorMessage = "DocumentOperations service not available for createSection";
-            return aResult;
-        }
-        
-        // Extract parameters (sectionName, position, sectionProperties)
-        OUString sSectionName;
-        css::uno::Any aPosition;
-        css::uno::Sequence<css::beans::PropertyValue> aSectionProperties;
-        
-        for (const auto& rParam : rOperation.aParameters)
-        {
-            if (rParam.Name == "SectionName")
-            {
-                rParam.Value >>= sSectionName;
-            }
-            else if (rParam.Name == "Position")
-            {
-                aPosition = rParam.Value;
-            }
-            else if (rParam.Name == "SectionProperties")
-            {
-                rParam.Value >>= aSectionProperties;
-            }
-        }
-        
-        // Execute createSection operation via DocumentOperations
-        OUString sOperationId = xDocOps->createSection(sSectionName, aPosition, aSectionProperties);
-        
-        aResult.bSuccess = true;
-        aResult.sOperationId = sOperationId;
-        
-        SAL_INFO("sw.ai", "createSection executed successfully - ID: " << sOperationId << " (section: " << sSectionName << ")");
+        // NOTE: createSection not implemented in simplified DocumentOperations
+        aResult.sErrorMessage = "createSection operation not implemented in simplified interface";
+        SAL_INFO("sw.ai", "createSection operation not implemented in simplified interface");
         return aResult;
     }
     catch (const css::uno::Exception& e)
@@ -2749,185 +2305,7 @@ OUString AgentCoordinator::formatExecutionSummary(const std::vector<ExecutionRes
     return sSummary;
 }
 
-// WebSocket communication management methods
 
-bool AgentCoordinator::initializeWebSocketClient()
-{
-    try
-    {
-        // Create WebSocketClient instance
-        m_pWebSocketClient = std::make_unique<sw::ai::WebSocketClient>(m_xContext);
-        
-        // Configure WebSocket client
-        Sequence<PropertyValue> aConfig(5);
-        PropertyValue* pConfig = aConfig.getArray();
-        pConfig[0].Name = "AutoReconnect";
-        pConfig[0].Value <<= true;
-        pConfig[1].Name = "MaxReconnectAttempts";
-        pConfig[1].Value <<= sal_Int32(3);
-        pConfig[2].Name = "ReconnectDelayMs";
-        pConfig[2].Value <<= sal_Int32(2000);
-        pConfig[3].Name = "HeartbeatIntervalMs";
-        pConfig[3].Value <<= sal_Int32(30000);
-        pConfig[4].Name = "EnableLogging";
-        pConfig[4].Value <<= true;
-        
-        bool bSuccess = m_pWebSocketClient->initialize(aConfig);
-        if (bSuccess)
-        {
-            SAL_INFO("sw.ai", "WebSocketClient initialized successfully");
-            
-            // Set up callbacks for real-time communication
-            m_pWebSocketClient->setMessageCallback(
-                [this](const sw::ai::WebSocketClient::WebSocketMessage& aMessage) {
-                    handleWebSocketMessage(aMessage.sContent);
-                });
-            
-            m_pWebSocketClient->setConnectionCallback(
-                [this](sw::ai::WebSocketClient::ConnectionState eState, const OUString& /*rsMessage*/) {
-                    bool bConnected = (eState == sw::ai::WebSocketClient::ConnectionState::CONNECTED);
-                    handleWebSocketConnectionChange(bConnected);
-                });
-            
-            m_pWebSocketClient->setErrorCallback(
-                [this](const OUString& rsError, sal_Int32 /*nCode*/) {
-                    SAL_WARN("sw.ai", "WebSocket error: " << rsError);
-                    handleNetworkError(rsError);
-                });
-        }
-        else
-        {
-            SAL_WARN("sw.ai", "WebSocketClient initialization failed");
-            m_pWebSocketClient.reset();
-        }
-        
-        return bSuccess;
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "WebSocketClient initialization exception: " << e.Message);
-        m_pWebSocketClient.reset();
-        return false;
-    }
-}
-
-bool AgentCoordinator::connectWebSocket(const OUString& rsUrl)
-{
-    if (!m_pWebSocketClient)
-    {
-        SAL_WARN("sw.ai", "WebSocketClient not initialized");
-        return false;
-    }
-    
-    try
-    {
-        SAL_INFO("sw.ai", "Connecting WebSocket to: " << rsUrl);
-        return m_pWebSocketClient->connect(rsUrl, "langgraph-ai");
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "WebSocket connection exception: " << e.Message);
-        return false;
-    }
-}
-
-void AgentCoordinator::disconnectWebSocket()
-{
-    if (m_pWebSocketClient)
-    {
-        SAL_INFO("sw.ai", "Disconnecting WebSocket");
-        m_pWebSocketClient->disconnect();
-    }
-}
-
-bool AgentCoordinator::sendWebSocketMessage(const OUString& rsMessage, const OUString& rsRequestId)
-{
-    if (!m_pWebSocketClient || !m_pWebSocketClient->isConnected())
-    {
-        SAL_WARN("sw.ai", "WebSocket not connected, cannot send message");
-        return false;
-    }
-    
-    try
-    {
-        // Create JSON message with request ID for correlation
-        OUString sJsonMessage = R"({"request_id": ")" + rsRequestId + 
-                               R"(", "message": ")" + rsMessage + 
-                               R"(", "timestamp": ")" + 
-                               OUString::number(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   std::chrono::steady_clock::now().time_since_epoch()).count()) + R"("})";
-        
-        std::map<OUString, OUString> aHeaders;
-        aHeaders["X-Request-ID"] = rsRequestId;
-        aHeaders["X-Agent-Type"] = "libreoffice-writer";
-        
-        return m_pWebSocketClient->sendJsonMessage(sJsonMessage, aHeaders);
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "WebSocket message send exception: " << e.Message);
-        return false;
-    }
-}
-
-void AgentCoordinator::handleWebSocketMessage(const OUString& rsMessage)
-{
-    try
-    {
-        SAL_INFO("sw.ai", "WebSocket message received: " << rsMessage.copy(0, std::min(rsMessage.getLength(), 100)) << "...");
-        
-        // TODO: Parse JSON message and handle different message types:
-        // - progress_update: Update UI with agent processing progress
-        // - agent_status: Update agent availability status
-        // - streaming_response: Stream partial responses to UI
-        // - error_notification: Handle backend errors
-        
-        // For development, log the message
-        logActivity("WebSocket message processed: " + rsMessage.copy(0, 50) + "...");
-        
-        // In a full implementation, this would:
-        // 1. Parse JSON to determine message type
-        // 2. Extract request ID for correlation
-        // 3. Update corresponding UI elements
-        // 4. Handle streaming responses for real-time updates
-        // 5. Manage agent status and availability
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "WebSocket message handling exception: " << e.Message);
-        handleNetworkError("WebSocket message processing failed: " + e.Message);
-    }
-}
-
-void AgentCoordinator::handleWebSocketConnectionChange(bool bConnected)
-{
-    SAL_INFO("sw.ai", "WebSocket connection state changed: " << (bConnected ? "CONNECTED" : "DISCONNECTED"));
-    
-    if (bConnected)
-    {
-        // WebSocket connected - can now send real-time requests
-        logActivity("WebSocket connected - real-time communication enabled");
-        
-        // If we were in offline mode due to WebSocket issues, try to go online
-        if (!m_bOnlineMode && m_pNetworkClient && m_pNetworkClient->isOnline())
-        {
-            exitOfflineMode();
-        }
-    }
-    else
-    {
-        // WebSocket disconnected - fall back to HTTP-only mode
-        logActivity("WebSocket disconnected - falling back to HTTP communication");
-        
-        // Don't enter offline mode unless HTTP is also failing
-        // WebSocket is for real-time updates, HTTP still works for basic requests
-    }
-}
-
-bool AgentCoordinator::isWebSocketEnabled() const
-{
-    return m_bEnableWebSocket && m_pWebSocketClient && m_pWebSocketClient->isConnected();
-}
 
 // Error handling and recovery management methods
 
@@ -2965,16 +2343,9 @@ bool AgentCoordinator::initializeErrorRecovery()
                 });
             
             m_pErrorRecovery->setRecoveryCallback(
-                [this](const sw::ai::ErrorRecoveryManager::ErrorContext& rError) -> bool {
+                [](const sw::ai::ErrorRecoveryManager::ErrorContext& /*rError*/) -> bool {
                     // Custom recovery logic for specific services
-                    if (rError.sServiceName == "websocket" && !isWebSocketEnabled())
-                    {
-                        // Try to reconnect WebSocket
-                        if (m_pWebSocketClient)
-                        {
-                            return m_pWebSocketClient->connect("ws://localhost:8000/ws/libreoffice", "langgraph-ai");
-                        }
-                    }
+                    // WebSocket recovery logic removed - HTTP only now
                     return false; // Let default recovery handle it
                 });
         }
@@ -3096,10 +2467,6 @@ void AgentCoordinator::reportOperationError(const OUString& rsRequestId, const O
         {
             eStrategy = m_pErrorRecovery->reportHttpError(nErrorCode, rsRequestId, rsServiceName, rsError);
         }
-        else if (rsServiceName == "websocket")
-        {
-            eStrategy = m_pErrorRecovery->reportWebSocketError(nErrorCode, rsRequestId, rsServiceName, rsError);
-        }
         else
         {
             eStrategy = m_pErrorRecovery->reportError(sw::ai::ErrorRecoveryManager::ErrorType::UNKNOWN_ERROR,
@@ -3215,6 +2582,290 @@ void AgentCoordinator::reportOperationSuccess(const OUString& rsRequestId, const
     {
         SAL_WARN("sw.ai", "Error reporting operation success: " << e.Message);
     }
+}
+
+
+OUString AgentCoordinator::performOperation(const OUString& rsOperationJson) const
+{
+    SAL_INFO("sw.ai", "Performing operation from JSON: " << rsOperationJson);
+    
+    try
+    {
+        // Initialize DocumentOperations service if needed
+        if (!m_pDocumentOperations)
+        {
+            const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
+            if (!m_pDocumentOperations)
+            {
+                return "ERROR: DocumentOperations service not available";
+            }
+        }
+        
+        // Extract operation type and response from JSON
+        OUString sOperationType;
+        OUString sResponse;
+        
+        // Simple JSON parsing to extract type
+        sal_Int32 nTypeStart = rsOperationJson.indexOf("\"type\":");
+        if (nTypeStart >= 0)
+        {
+            sal_Int32 nTypeValueStart = rsOperationJson.indexOf("\"", nTypeStart + 7);
+            sal_Int32 nTypeValueEnd = rsOperationJson.indexOf("\"", nTypeValueStart + 1);
+            if (nTypeValueStart >= 0 && nTypeValueEnd >= 0)
+            {
+                sOperationType = rsOperationJson.copy(nTypeValueStart + 1, nTypeValueEnd - nTypeValueStart - 1);
+            }
+        }
+        
+        // Extract response field
+        sal_Int32 nResponseStart = rsOperationJson.indexOf("\"response\":");
+        if (nResponseStart >= 0)
+        {
+            sal_Int32 nResponseValueStart = rsOperationJson.indexOf("\"", nResponseStart + 11);
+            sal_Int32 nResponseValueEnd = rsOperationJson.indexOf("\"", nResponseValueStart + 1);
+            if (nResponseValueStart >= 0 && nResponseValueEnd >= 0)
+            {
+                sResponse = rsOperationJson.copy(nResponseValueStart + 1, nResponseValueEnd - nResponseValueStart - 1);
+            }
+        }
+        
+        // Route to appropriate DocumentOperations function based on type
+        if (sOperationType == "insert")
+        {
+            callDocumentOperationsInsert(rsOperationJson);
+        }
+        else if (sOperationType == "format")
+        {
+            callDocumentOperationsFormat(rsOperationJson);
+        }
+        else if (sOperationType == "table")
+        {
+            callDocumentOperationsTable(rsOperationJson);
+        }
+        else if (sOperationType == "chart")
+        {
+            callDocumentOperationsChart(rsOperationJson);
+        }
+        else
+        {
+            return "ERROR: Unknown operation type: " + sOperationType;
+        }
+        
+        // Return the AI response for display
+        return sResponse;
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Failed to perform operation: " << e.Message);
+        return "ERROR: " + e.Message;
+    }
+}
+
+OUString AgentCoordinator::performOperationFromParsedData(const ParsedResponse& rParsed) const
+{
+    SAL_INFO("sw.ai", "Performing operation from already parsed data");
+    
+    try
+    {
+        // Initialize DocumentOperations service if needed
+        if (!m_pDocumentOperations)
+        {
+            const_cast<AgentCoordinator*>(this)->initializeDocumentOperationsService();
+            if (!m_pDocumentOperations)
+            {
+                return "ERROR: DocumentOperations service not available";
+            }
+        }
+        
+        // Check if we have any operations to execute
+        if (rParsed.aOperations.empty())
+        {
+            SAL_INFO("sw.ai", "No operations found in parsed data");
+            return "No operations to execute";
+        }
+        
+        // Execute the first operation (simplified workflow supports one operation per request)
+        const auto& rOperation = rParsed.aOperations[0];
+        
+        // Extract operation type
+        std::string sTypeStd = rOperation.get<std::string>("type", "");
+        OUString sOperationType = OUString::fromUtf8(sTypeStd);
+        
+        SAL_INFO("sw.ai", "Executing operation type: " << sOperationType);
+        
+        // Route to appropriate DocumentOperations function based on type - use already parsed data
+        if (sOperationType == "insert")
+        {
+            std::string sContentStd = rOperation.get<std::string>("content", "");
+            OUString sContent = OUString::fromUtf8(sContentStd);
+            SAL_INFO("sw.ai", "Calling insertAgentText with content length: " << sContent.getLength());
+            return m_pDocumentOperations->insertAgentText(sContent);
+        }
+        else if (sOperationType == "format")
+        {
+            SAL_INFO("sw.ai", "Calling formatAgentText");
+            return m_pDocumentOperations->formatAgentText("{}"); // Simplified formatting
+        }
+        else if (sOperationType == "table")
+        {
+            sal_Int32 nRows = static_cast<sal_Int32>(rOperation.get<int>("rows", 3));
+            sal_Int32 nColumns = static_cast<sal_Int32>(rOperation.get<int>("columns", 4));
+            SAL_INFO("sw.ai", "Calling insertAgentTable with " << nRows << "x" << nColumns);
+            return m_pDocumentOperations->insertAgentTable(nRows, nColumns);
+        }
+        else if (sOperationType == "chart")
+        {
+            std::string sChartTypeStd = rOperation.get<std::string>("chart_type", "bar");
+            OUString sChartType = OUString::fromUtf8(sChartTypeStd);
+            SAL_INFO("sw.ai", "Calling insertAgentChart with type: " << sChartType);
+            return m_pDocumentOperations->insertAgentChart(sChartType);
+        }
+        else
+        {
+            SAL_WARN("sw.ai", "Unknown operation type: " << sOperationType);
+            return "ERROR: Unknown operation type: " + sOperationType;
+        }
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Failed to perform operation from parsed data: " << e.Message);
+        return "ERROR: " + e.Message;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "std::exception in performOperationFromParsedData: " << e.what());
+        return "ERROR: " + OUString::createFromAscii(e.what());
+    }
+    catch (...)
+    {
+        SAL_WARN("sw.ai", "Unknown exception in performOperationFromParsedData");
+        return "ERROR: Unknown exception";
+    }
+}
+
+void AgentCoordinator::renderResponse(const OUString& rsResponse) const
+{
+    SAL_INFO("sw.ai", "Rendering response in AI chat panel: " << rsResponse);
+    
+    try
+    {
+        // Use callback mechanism to notify the chat panel
+        std::lock_guard<std::mutex> aGuard(s_aCallbackMutex);
+        if (s_pChatPanelCallback)
+        {
+            SAL_INFO("sw.ai", "Calling chat panel callback with response");
+            s_pChatPanelCallback(rsResponse);
+        }
+        else
+        {
+            SAL_WARN("sw.ai", "No chat panel callback registered - response not displayed in UI");
+        }
+    }
+    catch (const Exception& e)
+    {
+        SAL_WARN("sw.ai", "Failed to render response in UI: " << e.Message);
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "Failed to render response in UI: " << e.what());
+    }
+    
+    // Log the response for debugging
+    SAL_INFO("sw.ai", "AI Response: " << rsResponse);
+}
+
+// Helper functions to call DocumentOperations with specific operation types
+OUString AgentCoordinator::callDocumentOperationsInsert(const OUString& rsOperationJson) const
+{
+    // Extract content from JSON
+    OUString sContent;
+    sal_Int32 nContentStart = rsOperationJson.indexOf("\"content\":");
+    if (nContentStart >= 0)
+    {
+        sal_Int32 nContentValueStart = rsOperationJson.indexOf("\"", nContentStart + 10);
+        sal_Int32 nContentValueEnd = rsOperationJson.indexOf("\"", nContentValueStart + 1);
+        if (nContentValueStart >= 0 && nContentValueEnd >= 0)
+        {
+            sContent = rsOperationJson.copy(nContentValueStart + 1, nContentValueEnd - nContentValueStart - 1);
+        }
+    }
+    
+    // Call DocumentOperations insertAgentText function
+    return m_pDocumentOperations->insertAgentText(sContent);
+}
+
+OUString AgentCoordinator::callDocumentOperationsFormat(const OUString& rsOperationJson) const
+{
+    // Call DocumentOperations formatAgentText function
+    return m_pDocumentOperations->formatAgentText(rsOperationJson);
+}
+
+OUString AgentCoordinator::callDocumentOperationsTable(const OUString& rsOperationJson) const
+{
+    // Extract rows and columns from JSON
+    sal_Int32 nRows = 3; // default
+    sal_Int32 nColumns = 3; // default
+    
+    sal_Int32 nRowsStart = rsOperationJson.indexOf("\"rows\":");
+    if (nRowsStart >= 0)
+    {
+        sal_Int32 nRowsEnd = rsOperationJson.indexOf(",", nRowsStart);
+        if (nRowsEnd < 0) nRowsEnd = rsOperationJson.indexOf("}", nRowsStart);
+        if (nRowsEnd > nRowsStart)
+        {
+            OUString sRows = rsOperationJson.copy(nRowsStart + 7, nRowsEnd - nRowsStart - 7).trim();
+            nRows = sRows.toInt32();
+        }
+    }
+    
+    sal_Int32 nColsStart = rsOperationJson.indexOf("\"columns\":");
+    if (nColsStart >= 0)
+    {
+        sal_Int32 nColsEnd = rsOperationJson.indexOf(",", nColsStart);
+        if (nColsEnd < 0) nColsEnd = rsOperationJson.indexOf("}", nColsStart);
+        if (nColsEnd > nColsStart)
+        {
+            OUString sCols = rsOperationJson.copy(nColsStart + 10, nColsEnd - nColsStart - 10).trim();
+            nColumns = sCols.toInt32();
+        }
+    }
+    
+    // Call DocumentOperations insertAgentTable function
+    return m_pDocumentOperations->insertAgentTable(nRows, nColumns);
+}
+
+OUString AgentCoordinator::callDocumentOperationsChart(const OUString& rsOperationJson) const
+{
+    // Extract chart type from JSON
+    OUString sChartType = "bar"; // default
+    sal_Int32 nChartTypeStart = rsOperationJson.indexOf("\"chart_type\":");
+    if (nChartTypeStart >= 0)
+    {
+        sal_Int32 nTypeValueStart = rsOperationJson.indexOf("\"", nChartTypeStart + 13);
+        sal_Int32 nTypeValueEnd = rsOperationJson.indexOf("\"", nTypeValueStart + 1);
+        if (nTypeValueStart >= 0 && nTypeValueEnd >= 0)
+        {
+            sChartType = rsOperationJson.copy(nTypeValueStart + 1, nTypeValueEnd - nTypeValueStart - 1);
+        }
+    }
+    
+    // Call DocumentOperations insertAgentChart function
+    return m_pDocumentOperations->insertAgentChart(sChartType);
+}
+
+// Chat panel callback registration methods
+void AgentCoordinator::registerChatPanelCallback(ChatPanelCallback callback)
+{
+    std::lock_guard<std::mutex> aGuard(s_aCallbackMutex);
+    s_pChatPanelCallback = callback;
+    SAL_INFO("sw.ai", "Chat panel callback registered");
+}
+
+void AgentCoordinator::unregisterChatPanelCallback()
+{
+    std::lock_guard<std::mutex> aGuard(s_aCallbackMutex);
+    s_pChatPanelCallback = nullptr;
+    SAL_INFO("sw.ai", "Chat panel callback unregistered");
 }
 
 // Static factory method for UNO service creation

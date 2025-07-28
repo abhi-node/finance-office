@@ -20,6 +20,9 @@
 #include <rtl/uuid.h>
 #include <rtl/ustrbuf.hxx>
 
+// Include AgentCoordinator for callback registration
+#include "../../core/ai/AgentCoordinator.hxx"
+
 using namespace css;
 
 namespace sw::sidebar {
@@ -54,7 +57,11 @@ AIPanel::AIPanel(weld::Widget* pParent,
     initializeAgentCoordinator();
 }
 
-AIPanel::~AIPanel() = default;
+AIPanel::~AIPanel() 
+{
+    // Unregister callback when panel is destroyed
+    sw::core::ai::AgentCoordinator::unregisterChatPanelCallback();
+}
 
 void AIPanel::InitializeUI()
 {
@@ -124,13 +131,13 @@ void AIPanel::OnSendMessage()
             sanitizeMessage(sSanitizedMessage);
             SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message validated and sanitized");
             
-            // Add user message to chat history with queued status
+            // Add user message to chat history (final - no status updates needed)
             sal_Int32 nMessageId = m_xChatHistory->AddUserMessage(sSanitizedMessage);
-            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message added to chat history with ID: " << nMessageId);
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - User message added to chat history with ID: " << nMessageId);
             
-            // Update message status to sending
-            m_xChatHistory->UpdateMessageStatus(nMessageId, MessageStatus::SENDING);
-            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message status updated to SENDING");
+            // Add "Processing..." message to chat history immediately
+            sal_Int32 nProcessingMessageId = m_xChatHistory->AddAIMessage("Processing your request...");
+            SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Processing message added to chat with ID: " << nProcessingMessageId);
             
             // Clear input field
             m_xAITextInput->SetText("");
@@ -138,8 +145,8 @@ void AIPanel::OnSendMessage()
             // Store message ID for potential retry
             m_nLastUserMessageId = nMessageId;
             
-            // Queue message for processing with message ID
-            queueMessage(sSanitizedMessage, nMessageId);
+            // Queue message for processing with processing message ID (so we can replace it with response)
+            queueMessage(sSanitizedMessage, nProcessingMessageId);
             SAL_INFO("sw.ai", "AIPanel::OnSendMessage() - Message queued for processing");
             
             // Start processing if not already active
@@ -276,7 +283,7 @@ bool AIPanel::initializeAgentCoordinator()
         }
         
         // Create AgentCoordinator service
-        m_xAgentCoordinator = uno::Reference<ai::XAIAgentCoordinator>(
+        m_xAgentCoordinator = uno::Reference<css::ai::XAIAgentCoordinator>(
             xServiceManager->createInstance("com.sun.star.ai.AIAgentCoordinator"),
             uno::UNO_QUERY);
         
@@ -287,11 +294,60 @@ bool AIPanel::initializeAgentCoordinator()
             return false;
         }
         
+        // Initialize AgentCoordinator with frame
+        if (m_xFrame.is())
+        {
+            try
+            {
+                // Get the AgentCoordinator implementation to call initialize with frame
+                css::uno::Reference<css::uno::XInterface> xInterface(m_xAgentCoordinator, css::uno::UNO_QUERY);
+                if (xInterface.is())
+                {
+                    // Cast to the implementation class to access initialize method
+                    sw::core::ai::AgentCoordinator* pAgentCoordinator = 
+                        dynamic_cast<sw::core::ai::AgentCoordinator*>(xInterface.get());
+                    if (pAgentCoordinator)
+                    {
+                        pAgentCoordinator->initialize(m_xFrame);
+                        SAL_INFO("sw.ai", "AgentCoordinator initialized with frame successfully");
+                    }
+                    else
+                    {
+                        SAL_WARN("sw.ai", "Failed to cast AgentCoordinator for frame initialization");
+                    }
+                }
+            }
+            catch (const uno::Exception& e)
+            {
+                SAL_WARN("sw.ai", "Exception during AgentCoordinator frame initialization: " << e.Message);
+            }
+        }
+        else
+        {
+            SAL_WARN("sw.ai", "No frame available for AgentCoordinator initialization");
+        }
+        
         // Test the connection
         if (testConnection())
         {
             updateConnectionState(ConnectionState::CONNECTED);
             m_nReconnectionAttempts = 0;
+            
+            // Register callback for AI responses to be displayed in chat panel
+            sw::core::ai::AgentCoordinator::registerChatPanelCallback(
+                [this](const OUString& rsResponse) {
+                    // Add AI message to chat history
+                    if (m_xChatHistory)
+                    {
+                        m_xChatHistory->AddAIMessage(rsResponse);
+                        SAL_INFO("sw.ai", "AI response added to chat panel via callback");
+                    }
+                    else
+                    {
+                        SAL_WARN("sw.ai", "Chat history widget not available for callback");
+                    }
+                });
+                
             SAL_INFO("sw.ai", "AgentCoordinator initialized and connected successfully");
             return true;
         }
@@ -311,29 +367,48 @@ bool AIPanel::initializeAgentCoordinator()
 
 css::uno::Any AIPanel::prepareDocumentContext()
 {
+    SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - ENTRY");
+    
     try
     {
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Checking frame reference");
         if (!m_xFrame.is())
+        {
+            SAL_WARN("sw.ai", "AIPanel::prepareDocumentContext() - Frame is NULL, returning empty context");
             return uno::Any();
+        }
         
         // Get document reference
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Getting controller from frame");
         uno::Reference<frame::XController> xController = m_xFrame->getController();
         if (!xController.is())
+        {
+            SAL_WARN("sw.ai", "AIPanel::prepareDocumentContext() - Controller is NULL, returning empty context");
             return uno::Any();
-            
+        }
+        
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Getting document model from controller");
         uno::Reference<text::XTextDocument> xTextDoc(xController->getModel(), uno::UNO_QUERY);
         if (!xTextDoc.is())
+        {
+            SAL_WARN("sw.ai", "AIPanel::prepareDocumentContext() - TextDocument is NULL, returning empty context");
             return uno::Any();
+        }
+        
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Document references obtained successfully");
         
         // Create comprehensive document context
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Creating context sequence");
         uno::Sequence<beans::PropertyValue> aContext(4);
         beans::PropertyValue* pContext = aContext.getArray();
         
         // Document reference
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Setting document reference");
         pContext[0].Name = "Document";
         pContext[0].Value = uno::Any(xTextDoc);
         
         // Frame reference for more context
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Setting frame reference");
         pContext[1].Name = "Frame";
         pContext[1].Value = uno::Any(m_xFrame);
         
@@ -343,53 +418,94 @@ css::uno::Any AIPanel::prepareDocumentContext()
             std::chrono::steady_clock::now().time_since_epoch()).count()));
         
         // User preferences (placeholder)
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Setting user preferences");
         pContext[3].Name = "UserPreferences";
         pContext[3].Value = uno::Any(OUString("default"));
         
+        SAL_INFO("sw.ai", "AIPanel::prepareDocumentContext() - Context prepared successfully, returning");
         return uno::Any(aContext);
     }
     catch (const uno::Exception& e)
     {
         SAL_WARN("sw.ai", "Exception preparing document context: " << e.Message);
+        SAL_WARN("sw.ai", "AIPanel::prepareDocumentContext() - Returning empty context due to exception");
         return uno::Any();
     }
 }
 
 void AIPanel::processMessageQueue()
 {
+    SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Starting message queue processing");
+    
     std::lock_guard<std::mutex> aGuard(m_aMessageMutex);
+    
+    SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Queue size: " << m_aMessageQueue.size());
     
     while (!m_aMessageQueue.empty() && !isProcessingCancelled())
     {
         QueuedMessage aMessage = m_aMessageQueue.front();
         m_aMessageQueue.pop();
         
-        // Update message state to processing
-        updateMessageState(aMessage.sMessageId, MessageState::PROCESSING);
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Processing message ID: " << aMessage.sMessageId);
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Message content: " << aMessage.sContent);
         
-        // Show processing indicator
-        if (m_xChatHistory)
+        // Update internal message state only (no UI updates to avoid deadlock)
+        // Note: We already hold m_aMessageMutex, so update directly without calling updateMessageState()
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - About to update message state directly");
+        auto it = m_aActiveMessages.find(aMessage.sMessageId);
+        if (it != m_aActiveMessages.end())
         {
-            m_xChatHistory->UpdateMessageStatus(aMessage.nChatMessageId, MessageStatus::PROCESSING, "Processing request...");
-            showProcessingIndicator("Processing your request");
+            it->second.eState = MessageState::PROCESSING;
+            SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Message state updated to PROCESSING: " << aMessage.sMessageId);
+        }
+        else
+        {
+            SAL_WARN("sw.ai", "AIPanel::processMessageQueue() - Could not find message to update: " << aMessage.sMessageId);
         }
         
+        // Skip problematic UI updates that cause deadlock
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Skipping UI updates to avoid deadlock, processing message directly");
+        
         // Send to backend (this will be done in a separate thread)
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - About to send message to backend");
         sendMessageToBackend(aMessage);
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Message sent to backend, continuing queue processing");
+        
+        // Clean up this message from active messages without calling updateMessageState
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Cleaning up message from active messages");
+        m_aActiveMessages.erase(aMessage.sMessageId);
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Message cleanup completed");
+    }
+    
+    if (isProcessingCancelled())
+    {
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Processing cancelled, exiting queue processing");
+    }
+    else
+    {
+        SAL_INFO("sw.ai", "AIPanel::processMessageQueue() - Queue processing completed normally");
     }
 }
 
 void AIPanel::sendMessageToBackend(const QueuedMessage& rMessage)
 {
+    SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Starting backend send for message ID: " << rMessage.sMessageId);
+    SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Message content: " << rMessage.sContent);
+    SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Chat message ID: " << rMessage.nChatMessageId);
+    
     // Check connection state
     if (!isConnected())
     {
+        SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - Not connected to backend, connection state: " << static_cast<int>(m_eConnectionState.load()));
+        
         if (m_eConnectionState.load() == ConnectionState::FAILED)
         {
+            SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Attempting reconnection due to failed state");
             // Attempt reconnection
             attemptReconnection();
             if (!isConnected())
             {
+                SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - Reconnection failed, aborting message send");
                 // Update chat history first
                 if (m_xChatHistory)
                 {
@@ -398,9 +514,11 @@ void AIPanel::sendMessageToBackend(const QueuedMessage& rMessage)
                 handleBackendError(rMessage.sMessageId, "Cannot connect to AI service");
                 return;
             }
+            SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Reconnection successful, proceeding with message send");
         }
         else
         {
+            SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - Not connected and not in failed state, aborting message send");
             // Update chat history first
             if (m_xChatHistory)
             {
@@ -413,6 +531,7 @@ void AIPanel::sendMessageToBackend(const QueuedMessage& rMessage)
     
     if (!m_xAgentCoordinator.is())
     {
+        SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - AgentCoordinator service not available");
         // Update chat history first
         if (m_xChatHistory)
         {
@@ -422,45 +541,61 @@ void AIPanel::sendMessageToBackend(const QueuedMessage& rMessage)
         return;
     }
     
+    SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - AgentCoordinator available, proceeding with request");
+    
     try
     {
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - About to prepare document context");
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - m_xAgentCoordinator valid: " << (m_xAgentCoordinator.is() ? "TRUE" : "FALSE"));
+        
         // Prepare document context
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Calling prepareDocumentContext()");
         uno::Any aDocumentContext = prepareDocumentContext();
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - prepareDocumentContext() completed successfully");
         
-        // Send message to AgentCoordinator
-        updateMessageState(rMessage.sMessageId, MessageState::SENT);
+        // Skip all problematic state updates and go straight to AgentCoordinator
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Skipping state updates, calling AgentCoordinator directly");
         
-        // Show typing indicator
-        if (m_xChatHistory)
-        {
-            m_xChatHistory->UpdateMessageStatus(rMessage.nChatMessageId, MessageStatus::PROCESSING, "Waiting for AI response...");
-            showTypingIndicator();
-        }
-        
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - About to call AgentCoordinator.processUserRequest()");
         // Call AgentCoordinator (this should be async in a real implementation)
         OUString sResponse = m_xAgentCoordinator->processUserRequest(
             rMessage.sContent, aDocumentContext);
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - AgentCoordinator.processUserRequest() completed");
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Response length: " << sResponse.getLength());
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Response preview: " << sResponse.copy(0, std::min(100, sResponse.getLength())));
         
-        // Handle response
-        handleBackendResponse(rMessage.sMessageId, sResponse);
+        // Handle response directly without state management
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Adding response directly to chat");
+        if (m_xChatHistory)
+        {
+            parseAndDisplayEnhancedResponse(sResponse);
+            SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Response added to chat successfully");
+        }
+        
+        SAL_INFO("sw.ai", "AIPanel::sendMessageToBackend() - Backend processing completed successfully");
     }
     catch (const uno::Exception& e)
     {
-        // Connection-related errors should trigger reconnection
-        OUString sErrorMsg = e.Message;
-        if (sErrorMsg.indexOf("connection") >= 0 || sErrorMsg.indexOf("timeout") >= 0)
-        {
-            updateConnectionState(ConnectionState::DISCONNECTED);
-            attemptReconnection();
-        }
+        SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - Exception caught: " << e.Message);
         
-        handleBackendError(rMessage.sMessageId, sErrorMsg);
+        // Add error message directly to chat without complex state management
+        if (m_xChatHistory)
+        {
+            OUString sErrorMessage = "Error: " + e.Message;
+            m_xChatHistory->AddAIMessage(sErrorMessage);
+            SAL_WARN("sw.ai", "AIPanel::sendMessageToBackend() - Error message added to chat");
+        }
     }
 }
 
 void AIPanel::handleBackendResponse(const OUString& rsMessageId, const OUString& rsResponse)
 {
+    SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Starting response handling for message ID: " << rsMessageId);
+    SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Response length: " << rsResponse.getLength());
+    SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Response preview: " << rsResponse.copy(0, std::min(200, rsResponse.getLength())));
+    
     updateMessageState(rsMessageId, MessageState::DELIVERED);
+    SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Message state updated to DELIVERED");
     
     // Find the original message to update its status
     sal_Int32 nChatMessageId = -1;
@@ -470,23 +605,28 @@ void AIPanel::handleBackendResponse(const OUString& rsMessageId, const OUString&
         if (it != m_aActiveMessages.end())
         {
             nChatMessageId = it->second.nChatMessageId;
+            SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Found chat message ID: " << nChatMessageId);
+        }
+        else
+        {
+            SAL_WARN("sw.ai", "AIPanel::handleBackendResponse() - Could not find chat message ID for message: " << rsMessageId);
         }
     }
     
     // Hide loading indicators
+    SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Hiding typing indicator");
     hideTypingIndicator();
     
-    // Update original message status to delivered
-    if (m_xChatHistory && nChatMessageId > 0)
-    {
-        m_xChatHistory->UpdateMessageStatus(nChatMessageId, MessageStatus::DELIVERED, "Response received");
-    }
-    
-    // PHASE 7: Parse and display enhanced response format
-    // Display both agent content and operation confirmations per AGENT_SYSTEM_SPECIFICATION.md
+    // Add the AI response as a new message (keep the processing message for now)
     if (m_xChatHistory)
     {
+        SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - Adding AI response to chat");
         parseAndDisplayEnhancedResponse(rsResponse);
+        SAL_INFO("sw.ai", "AIPanel::handleBackendResponse() - AI response added to chat successfully");
+    }
+    else
+    {
+        SAL_WARN("sw.ai", "AIPanel::handleBackendResponse() - Cannot display response - chat history not available");
     }
     
     // Remove from active messages
@@ -966,7 +1106,7 @@ void AIPanel::parseAndDisplayEnhancedResponse(const OUString& rsResponse)
     }
 }
 
-OUString AIPanel::formatOperationConfirmations(const boost::property_tree::ptree& rOperations, bool bSuccess, double fExecutionTime) const
+OUString AIPanel::formatOperationConfirmations(const boost::property_tree::ptree& rOperations, bool /*bSuccess*/, double fExecutionTime) const
 {
     try
     {

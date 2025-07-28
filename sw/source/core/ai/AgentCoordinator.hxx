@@ -13,7 +13,8 @@
 
 #include <cppuhelper/implbase.hxx>
 #include <com/sun/star/ai/XAIAgentCoordinator.hpp>
-#include <com/sun/star/ai/XAIDocumentOperations.hpp>
+// Forward declaration for DocumentOperations
+namespace sw::core::ai::operations { class DocumentOperations; }
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/lang/IllegalArgumentException.hpp>
 #include <com/sun/star/uno/XComponentContext.hpp>
@@ -26,6 +27,7 @@
 #include <queue>
 #include <string>
 #include <chrono>
+#include <functional>
 
 // JSON parsing for enhanced API response format
 #include <boost/property_tree/ptree.hpp>
@@ -43,7 +45,6 @@ namespace sw::ai {
     class DocumentContext;
     class MessageQueue;
     class NetworkClient;
-    class WebSocketClient;
     class AuthenticationManager;
     class ErrorRecoveryManager;
 }
@@ -85,7 +86,6 @@ private:
     std::unique_ptr<sw::ai::DocumentContext> m_pDocumentContext;
     std::unique_ptr<sw::ai::MessageQueue> m_pMessageQueue;
     std::unique_ptr<sw::ai::NetworkClient> m_pNetworkClient;
-    std::unique_ptr<sw::ai::WebSocketClient> m_pWebSocketClient;
     std::unique_ptr<sw::ai::AuthenticationManager> m_pAuthManager;
     std::unique_ptr<sw::ai::ErrorRecoveryManager> m_pErrorRecovery;
     
@@ -116,11 +116,10 @@ private:
     sal_Int32 m_nMaxRetries;
     sal_Int32 m_nTimeoutMs;
     sal_Int32 m_nMaxQueueSize;
-    bool m_bEnableWebSocket;
     bool m_bEnableOfflineMode;
     
-    // DocumentOperations service reference for operation execution (Phase 6)
-    mutable css::uno::Reference<css::ai::XAIDocumentOperations> m_xDocumentOperations;
+    // DocumentOperations direct instance for simplified operation execution
+    mutable std::unique_ptr<sw::core::ai::operations::DocumentOperations> m_pDocumentOperations;
     
 public:
     explicit AgentCoordinator(const css::uno::Reference<css::uno::XComponentContext>& xContext);
@@ -152,6 +151,11 @@ public:
     void SAL_CALL initialize(const css::uno::Reference<css::frame::XFrame>& xFrame);
     void SAL_CALL shutdown();
     
+    // UI callback mechanism for chat panel integration
+    typedef std::function<void(const OUString&)> ChatPanelCallback;
+    static void registerChatPanelCallback(ChatPanelCallback callback);
+    static void unregisterChatPanelCallback();
+    
 private:
     // Internal processing methods - designed for future extension
     
@@ -159,16 +163,6 @@ private:
      * Analyzes request complexity for intelligent routing
      * Future: Will route simple requests (1-2s) vs complex requests (3-5s)
      */
-    enum class RequestComplexity { Simple, Moderate, Complex };
-    RequestComplexity analyzeRequestComplexity(const OUString& rsRequest) const;
-    
-    /**
-     * Processes requests based on complexity
-     * Future: Simple = direct local processing, Complex = full LangGraph workflow
-     */
-    OUString processSimpleRequest(const OUString& rsRequest, const css::uno::Any& rContext);
-    OUString processModerateRequest(const OUString& rsRequest, const css::uno::Any& rContext);
-    OUString processComplexRequest(const OUString& rsRequest, const css::uno::Any& rContext);
     
     /**
      * Unified request processing via LangGraph agents
@@ -263,10 +257,29 @@ private:
     };
     
     std::vector<ExecutionResult> executeTranslatedOperations(const std::vector<TranslatedOperation>& rOperations) const;
+    
+    /**
+     * Simplified operation execution - bypasses translation layer
+     * Sends agent JSON directly to DocumentOperations.processAgentOperations
+     */
+
+    
+    /**
+     * New simplified workflow functions
+     */
+    OUString performOperation(const OUString& rsOperationJson) const;
+    OUString performOperationFromParsedData(const ParsedResponse& rParsed) const;
+    void renderResponse(const OUString& rsResponse) const;
+    
+    // Helper functions for calling DocumentOperations with specific types
+    OUString callDocumentOperationsInsert(const OUString& rsOperationJson) const;
+    OUString callDocumentOperationsFormat(const OUString& rsOperationJson) const;
+    OUString callDocumentOperationsTable(const OUString& rsOperationJson) const;
+    OUString callDocumentOperationsChart(const OUString& rsOperationJson) const;
     ExecutionResult executeSingleOperation(const TranslatedOperation& rOperation) const;
     
-    // DocumentOperations service access
-    css::uno::Reference<css::ai::XAIDocumentOperations> getDocumentOperationsService() const;
+    // DocumentOperations direct access (simplified)
+    sw::core::ai::operations::DocumentOperations* getDocumentOperationsService() const;
     bool initializeDocumentOperationsService();
     
     // Operation execution methods for specific operation types
@@ -282,17 +295,6 @@ private:
     OUString formatExecutionSummary(const std::vector<ExecutionResult>& rResults) const;
     void sortOperationsByPriority(std::vector<TranslatedOperation>& rOperations) const;
     
-    /**
-     * WebSocket communication management (Phase 3)
-     * Real-time communication for streaming progress updates
-     */
-    bool initializeWebSocketClient();
-    bool connectWebSocket(const OUString& rsUrl);
-    void disconnectWebSocket();
-    bool sendWebSocketMessage(const OUString& rsMessage, const OUString& rsRequestId);
-    void handleWebSocketMessage(const OUString& rsMessage);
-    void handleWebSocketConnectionChange(bool bConnected);
-    bool isWebSocketEnabled() const;
     
     /**
      * Error handling and recovery (Phase 4)
@@ -351,6 +353,11 @@ private:
     OUString generateRequestId() const;
     bool isRequestTimedOut(const PendingRequest& rRequest) const;
     void logActivity(const OUString& rsMessage) const;
+    
+    
+    // Static chat panel callback for UI integration
+    static ChatPanelCallback s_pChatPanelCallback;
+    static std::mutex s_aCallbackMutex;
     
     // Static factory method for UNO service creation
 public:

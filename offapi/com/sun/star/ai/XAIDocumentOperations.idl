@@ -309,6 +309,44 @@ interface XAIDocumentOperations : com::sun::star::uno::XInterface
      * @return                 Document structure analysis
      */
     any getDocumentStructure();
+
+    /**
+     * Simplified Agent-Specific Operations
+     * These methods provide direct operation handling for the 4 core agent operations
+     */
+    
+    /**
+     * Insert text at current cursor position (Agent operation)
+     * 
+     * @param rsContent        Text content to insert
+     * @return                 Operation result message
+     */
+    string insertAgentText([in] string rsContent);
+    
+    /**
+     * Format currently selected text (Agent operation)
+     * 
+     * @param rsFormattingJson JSON object containing formatting properties
+     * @return                 Operation result message  
+     */
+    string formatAgentText([in] string rsFormattingJson);
+    
+    /**
+     * Insert table at current cursor position (Agent operation)
+     * 
+     * @param nRows            Number of table rows
+     * @param nColumns         Number of table columns
+     * @return                 Operation result message
+     */
+    string insertAgentTable([in] long nRows, [in] long nColumns);
+    
+    /**
+     * Insert chart at current cursor position (Agent operation)
+     * 
+     * @param rsChartType      Chart type (bar, line, pie, column)
+     * @return                 Operation result message
+     */
+    string insertAgentChart([in] string rsChartType);
 };
 
 }; }; }; };

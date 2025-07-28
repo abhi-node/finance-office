@@ -19,6 +19,24 @@
 #include <rtl/ustrbuf.hxx>
 #include <rtl/uri.hxx>
 #include <comphelper/random.hxx>
+#include <sstream>
+
+// Socket includes for HTTP communication
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #pragma comment(lib, "ws2_32.lib")
+#else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <netdb.h>
+    #include <unistd.h>
+    #define SOCKET int
+    #define INVALID_SOCKET -1
+    #define SOCKET_ERROR -1
+    #define closesocket close
+#endif
 
 #include <com/sun/star/ucb/SimpleFileAccess.hpp>
 #include <com/sun/star/ucb/XCommandEnvironment.hpp>
@@ -232,36 +250,63 @@ NetworkClient::HttpResponse NetworkClient::executePostRequest(
 {
     HttpResponse aResponse;
     
-    // Note: LibreOffice's UCB system has limited support for HTTP POST with custom bodies
-    // For a production implementation, this would need to use:
-    // 1. Native HTTP libraries (if available)
-    // 2. External HTTP client integration
-    // 3. Or extended UCB functionality
+    SAL_INFO("sw.ai", "ExecutePostRequest - URL: " << rRequest.sUrl);
+    SAL_INFO("sw.ai", "ExecutePostRequest - Body length: " << rRequest.sBody.getLength());
+    SAL_INFO("sw.ai", "ExecutePostRequest - Body content: " << rRequest.sBody);
     
-    // For now, we'll simulate the POST functionality for development purposes
-    SAL_INFO("sw.ai", "POST request simulation - body length: " << rRequest.sBody.getLength());
-    
-    // In a real implementation, this would:
-    // 1. Create appropriate UCB content with POST method
-    // 2. Set up request headers including Content-Type
-    // 3. Write request body to output stream
-    // 4. Execute the request and read response
-    
-    // Simulated response for development
-    if (rRequest.sUrl.indexOf("langraph") >= 0 || rRequest.sUrl.indexOf("localhost") >= 0)
+    try
     {
-        // Simulate successful response from LangGraph backend
-        aResponse.nStatusCode = 200;
-        aResponse.sStatusText = "OK";
-        aResponse.sBody = R"({"status": "success", "message": "Request processed successfully", "response": "Simulated agent response"})";
-        aResponse.bSuccess = true;
-        aResponse.aHeaders["Content-Type"] = "application/json";
+        // Convert OUString to std::string for simpler handling
+        OString aUrlUtf8 = OUStringToOString(rRequest.sUrl, RTL_TEXTENCODING_UTF8);
+        OString aBodyUtf8 = OUStringToOString(rRequest.sBody, RTL_TEXTENCODING_UTF8);
+        
+        // For localhost development, use simplified HTTP implementation
+        if (rRequest.sUrl.indexOf("localhost") >= 0)
+        {
+            SAL_INFO("sw.ai", "ExecutePostRequest - Making real HTTP POST to localhost");
+            
+            // Parse URL to extract host, port, and path
+            OUString sHost = "localhost";
+            sal_Int32 nPort = 8000;
+            OUString sPath = "/api/agent";
+            
+            // Extract port from URL if specified
+            sal_Int32 nPortStart = rRequest.sUrl.indexOf(":", 7); // after "http://"
+            if (nPortStart >= 0)
+            {
+                sal_Int32 nPortEnd = rRequest.sUrl.indexOf("/", nPortStart);
+                if (nPortEnd >= 0)
+                {
+                    OUString sPortStr = rRequest.sUrl.copy(nPortStart + 1, nPortEnd - nPortStart - 1);
+                    nPort = sPortStr.toInt32();
+                    sPath = rRequest.sUrl.copy(nPortEnd);
+                }
+            }
+            
+            // Make actual HTTP request using basic socket approach
+            aResponse = makeHttpPostRequest(sHost, nPort, sPath, rRequest.sBody, rRequest.aHeaders);
+        }
+        else
+        {
+            // For non-localhost URLs, return error as before
+            SAL_WARN("sw.ai", "ExecutePostRequest - Non-localhost URLs not supported: " << rRequest.sUrl);
+            aResponse.nStatusCode = 503;
+            aResponse.sErrorMessage = "Only localhost connections supported for HTTP POST";
+            aResponse.bSuccess = false;
+        }
     }
-    else
+    catch (const Exception& e)
     {
-        // Simulate connection error for unknown endpoints
-        aResponse.nStatusCode = 503;
-        aResponse.sErrorMessage = "Service unavailable - LangGraph backend not implemented yet";
+        SAL_WARN("sw.ai", "ExecutePostRequest - Exception: " << e.Message);
+        aResponse.nStatusCode = 500;
+        aResponse.sErrorMessage = "Internal error: " + e.Message;
+        aResponse.bSuccess = false;
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "ExecutePostRequest - std::exception: " << e.what());
+        aResponse.nStatusCode = 500;
+        aResponse.sErrorMessage = "Internal error: " + OUString::createFromAscii(e.what());
         aResponse.bSuccess = false;
     }
     
@@ -445,150 +490,6 @@ bool NetworkClient::applyProxySettings(HttpRequest& /*rRequest*/) const
     return true;
 }
 
-NetworkClient::HttpResponse NetworkClient::executePostRequest(
-    const HttpRequest& rRequest, const OUString& rsRequestId, RequestMetrics& rMetrics)
-{
-    HttpResponse aResponse;
-    
-    try
-    {
-        SAL_INFO("sw.ai", "Executing POST request " << rsRequestId << " to " << rRequest.sUrl);
-        
-        // For now, implement a simple HTTP POST using basic LibreOffice networking
-        // This is a simplified implementation for localhost communication
-        if (rRequest.sUrl.startsWith("http://localhost:"))
-        {
-            // Extract host, port, and path
-            OUString sUrl = rRequest.sUrl.copy(7); // Remove "http://"
-            sal_Int32 nColonPos = sUrl.indexOf(':');
-            sal_Int32 nSlashPos = sUrl.indexOf('/');
-            
-            if (nColonPos > 0 && nSlashPos > nColonPos)
-            {
-                OUString sHost = sUrl.copy(0, nColonPos);
-                OUString sPort = sUrl.copy(nColonPos + 1, nSlashPos - nColonPos - 1);
-                OUString sPath = sUrl.copy(nSlashPos);
-                
-                SAL_INFO("sw.ai", "POST to " << sHost << ":" << sPort << sPath);
-                
-                // For localhost testing, simulate successful response
-                // In a real implementation, this would use UCB or proper HTTP client
-                if (sHost == "localhost" && sPort == "8000")
-                {
-                    aResponse.nStatusCode = 200;
-                    aResponse.sStatusText = "OK";
-                    aResponse.bSuccess = true;
-                    
-                    // Create a mock JSON response that matches Python agent format exactly
-                    OUStringBuffer sResponseBody;
-                    sResponseBody.append("{");
-                    sResponseBody.append("\"request_id\": \"mock_response_");
-                    sResponseBody.append(rsRequestId);
-                    sResponseBody.append("\", ");
-                    sResponseBody.append("\"success\": true, ");
-                    sResponseBody.append("\"response_content\": \"This is a mock response for testing. Your request was processed successfully. Request: ");
-                    // Add truncated request body for debugging
-                    OUString sBodyPreview = rRequest.sBody.getLength() > 100 ? 
-                        rRequest.sBody.copy(0, 100) + "..." : rRequest.sBody;
-                    // Escape quotes and newlines for JSON
-                    sBodyPreview = sBodyPreview.replaceAll("\"", "\\\"");
-                    sBodyPreview = sBodyPreview.replaceAll("\n", "\\n");
-                    sResponseBody.append(sBodyPreview);
-                    sResponseBody.append("\", ");
-                    sResponseBody.append("\"operations\": [");
-                    sResponseBody.append("{\"type\": \"insertText\", \"parameters\": {\"text\": \"Mock operation executed for: ");
-                    sResponseBody.append(rsRequestId);
-                    sResponseBody.append("\", \"position\": \"cursor\"}}");
-                    sResponseBody.append("], ");
-                    sResponseBody.append("\"operation_summaries\": [\"Inserted mock text at cursor position\"], ");
-                    sResponseBody.append("\"content_changes\": {}, ");
-                    sResponseBody.append("\"formatting_changes\": {}, ");
-                    sResponseBody.append("\"warnings\": [], ");
-                    sResponseBody.append("\"metadata\": {");
-                    sResponseBody.append("\"complexity_detected\": \"simple\", ");
-                    sResponseBody.append("\"performance_target_met\": true, ");
-                    sResponseBody.append("\"processing_time_ms\": 150");
-                    sResponseBody.append("}, ");
-                    sResponseBody.append("\"execution_time_ms\": 150.0, ");
-                    sResponseBody.append("\"agent_results\": {}");
-                    sResponseBody.append("}");
-                    
-                    aResponse.sBody = sResponseBody.makeStringAndClear();
-                    aResponse.aHeaders["Content-Type"] = "application/json";
-                    
-                    SAL_INFO("sw.ai", "Mock response generated for request " << rsRequestId);
-                }
-                else
-                {
-                    aResponse.nStatusCode = 404;
-                    aResponse.sStatusText = "Not Found";
-                    aResponse.sErrorMessage = "Mock implementation only supports localhost:8000";
-                    aResponse.bSuccess = false;
-                }
-            }
-            else
-            {
-                aResponse.nStatusCode = 400;
-                aResponse.sStatusText = "Bad Request";
-                aResponse.sErrorMessage = "Invalid URL format";
-                aResponse.bSuccess = false;
-            }
-        }
-        else
-        {
-            aResponse.nStatusCode = 501;
-            aResponse.sStatusText = "Not Implemented";
-            aResponse.sErrorMessage = "Non-localhost URLs not yet implemented";
-            aResponse.bSuccess = false;
-        }
-        
-        rMetrics.aEndTime = std::chrono::steady_clock::now();
-        rMetrics.nRequestSize = rRequest.sBody.getLength();
-        rMetrics.nResponseSize = aResponse.sBody.getLength();
-        
-        // Store metrics
-        {
-            std::lock_guard<std::mutex> aGuard(m_aMutex);
-            m_aRequestMetrics[rsRequestId] = rMetrics;
-        }
-        
-        logRequest(rsRequestId, rRequest, &aResponse);
-        return aResponse;
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "POST request " << rsRequestId << " failed: " << e.Message);
-        return handleNetworkError("executePostRequest", e);
-    }
-}
-
-NetworkClient::HttpResponse NetworkClient::executeGetRequest(
-    const HttpRequest& rRequest, const OUString& rsRequestId, RequestMetrics& rMetrics)
-{
-    HttpResponse aResponse;
-    
-    try
-    {
-        SAL_INFO("sw.ai", "Executing GET request " << rsRequestId << " to " << rRequest.sUrl);
-        
-        // Simple GET implementation for testing
-        aResponse.nStatusCode = 200;
-        aResponse.sStatusText = "OK";
-        aResponse.sBody = "{\"status\": \"GET request successful\"}";
-        aResponse.bSuccess = true;
-        
-        rMetrics.aEndTime = std::chrono::steady_clock::now();
-        rMetrics.nResponseSize = aResponse.sBody.getLength();
-        
-        logRequest(rsRequestId, rRequest, &aResponse);
-        return aResponse;
-    }
-    catch (const Exception& e)
-    {
-        SAL_WARN("sw.ai", "GET request " << rsRequestId << " failed: " << e.Message);
-        return handleNetworkError("executeGetRequest", e);
-    }
-}
 
 bool NetworkClient::validateRequest(const HttpRequest& rRequest) const
 {
@@ -612,6 +513,215 @@ bool NetworkClient::validateRequest(const HttpRequest& rRequest) const
     }
     
     return true;
+}
+
+NetworkClient::HttpResponse NetworkClient::makeHttpPostRequest(const OUString& rsHost, sal_Int32 nPort, 
+                                                              const OUString& rsPath, const OUString& rsBody,
+                                                              const std::map<OUString, OUString>& rHeaders)
+{
+    HttpResponse aResponse;
+    
+    SAL_INFO("sw.ai", "makeHttpPostRequest - Host: " << rsHost << ", Port: " << nPort << ", Path: " << rsPath);
+    SAL_INFO("sw.ai", "makeHttpPostRequest - Body length: " << rsBody.getLength());
+    SAL_INFO("sw.ai", "makeHttpPostRequest - Body content: " << rsBody);
+    
+    try
+    {
+        // Convert OUString parameters to std::string for socket operations
+        std::string sHost = OUStringToOString(rsHost, RTL_TEXTENCODING_UTF8).getStr();
+        std::string sPath = OUStringToOString(rsPath, RTL_TEXTENCODING_UTF8).getStr();
+        std::string sBody = OUStringToOString(rsBody, RTL_TEXTENCODING_UTF8).getStr();
+        
+        // Initialize Winsock on Windows
+        #ifdef _WIN32
+        WSADATA wsaData;
+        int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
+        if (result != 0) 
+        {
+            SAL_WARN("sw.ai", "WSAStartup failed: " << result);
+            aResponse.nStatusCode = 500;
+            aResponse.sErrorMessage = "Failed to initialize Winsock";
+            aResponse.bSuccess = false;
+            return aResponse;
+        }
+        #endif
+        
+        // Create socket
+        SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock == INVALID_SOCKET)
+        {
+            SAL_WARN("sw.ai", "Failed to create socket");
+            #ifdef _WIN32
+            WSACleanup();
+            #endif
+            aResponse.nStatusCode = 500;
+            aResponse.sErrorMessage = "Failed to create socket";
+            aResponse.bSuccess = false;
+            return aResponse;
+        }
+        
+        // Setup server address
+        struct sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(static_cast<unsigned short>(nPort));
+        
+        // Convert hostname to IP address
+        if (sHost == "localhost" || sHost == "127.0.0.1")
+        {
+            serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        }
+        else
+        {
+            struct hostent* host = gethostbyname(sHost.c_str());
+            if (host == nullptr)
+            {
+                SAL_WARN("sw.ai", "Failed to resolve hostname: " << sHost.c_str());
+                closesocket(sock);
+                #ifdef _WIN32
+                WSACleanup();
+                #endif
+                aResponse.nStatusCode = 500;
+                aResponse.sErrorMessage = "Failed to resolve hostname";
+                aResponse.bSuccess = false;
+                return aResponse;
+            }
+            memcpy(&serverAddr.sin_addr, host->h_addr_list[0], host->h_length);
+        }
+        
+        // Connect to server
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Connecting to " << sHost.c_str() << ":" << nPort);
+        if (connect(sock, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+        {
+            SAL_WARN("sw.ai", "Failed to connect to server");
+            closesocket(sock);
+            #ifdef _WIN32
+            WSACleanup();
+            #endif
+            aResponse.nStatusCode = 503;
+            aResponse.sErrorMessage = "Connection failed - Is the server running?";
+            aResponse.bSuccess = false;
+            return aResponse;
+        }
+        
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Connected successfully");
+        
+        // Build HTTP request
+        std::ostringstream request;
+        request << "POST " << sPath << " HTTP/1.1\r\n";
+        request << "Host: " << sHost << ":" << nPort << "\r\n";
+        request << "Content-Type: application/json\r\n";
+        request << "Content-Length: " << sBody.length() << "\r\n";
+        request << "Accept: application/json\r\n";
+        request << "User-Agent: LibreOffice-AI-Agent/1.0\r\n";
+        request << "Connection: close\r\n";
+        
+        // Add custom headers
+        for (const auto& header : rHeaders)
+        {
+            std::string sHeaderName = OUStringToOString(header.first, RTL_TEXTENCODING_UTF8).getStr();
+            std::string sHeaderValue = OUStringToOString(header.second, RTL_TEXTENCODING_UTF8).getStr();
+            request << sHeaderName << ": " << sHeaderValue << "\r\n";
+        }
+        
+        request << "\r\n"; // End headers
+        request << sBody;   // Add body
+        
+        std::string httpRequest = request.str();
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Sending HTTP request, length: " << httpRequest.length());
+        
+        // Send HTTP request
+        int bytesSent = send(sock, httpRequest.c_str(), static_cast<int>(httpRequest.length()), 0);
+        if (bytesSent == SOCKET_ERROR)
+        {
+            SAL_WARN("sw.ai", "Failed to send HTTP request");
+            closesocket(sock);
+            #ifdef _WIN32
+            WSACleanup();
+            #endif
+            aResponse.nStatusCode = 500;
+            aResponse.sErrorMessage = "Failed to send request";
+            aResponse.bSuccess = false;
+            return aResponse;
+        }
+        
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Request sent, " << bytesSent << " bytes");
+        
+        // Receive HTTP response
+        std::string response;
+        char buffer[4096];
+        int bytesReceived;
+        
+        while ((bytesReceived = recv(sock, buffer, sizeof(buffer) - 1, 0)) > 0)
+        {
+            buffer[bytesReceived] = '\0';
+            response += buffer;
+        }
+        
+        closesocket(sock);
+        #ifdef _WIN32
+        WSACleanup();
+        #endif
+        
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Response received, length: " << response.length());
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Response preview: " << response.substr(0, 500).c_str());
+        
+        // Parse HTTP response
+        size_t headerEnd = response.find("\r\n\r\n");
+        if (headerEnd == std::string::npos)
+        {
+            SAL_WARN("sw.ai", "Invalid HTTP response format");
+            aResponse.nStatusCode = 500;
+            aResponse.sErrorMessage = "Invalid response format";
+            aResponse.bSuccess = false;
+            return aResponse;
+        }
+        
+        std::string headers = response.substr(0, headerEnd);
+        std::string body = response.substr(headerEnd + 4);
+        
+        // Parse status line
+        size_t firstSpace = headers.find(' ');
+        size_t secondSpace = headers.find(' ', firstSpace + 1);
+        if (firstSpace != std::string::npos && secondSpace != std::string::npos)
+        {
+            std::string statusCodeStr = headers.substr(firstSpace + 1, secondSpace - firstSpace - 1);
+            aResponse.nStatusCode = std::stoi(statusCodeStr);
+            aResponse.sStatusText = OUString::createFromAscii(headers.substr(secondSpace + 1, headers.find('\r') - secondSpace - 1).c_str());
+        }
+        else
+        {
+            aResponse.nStatusCode = 200; // Assume OK if we can't parse
+            aResponse.sStatusText = "OK";
+        }
+        
+        // Convert body to OUString
+        aResponse.sBody = OUString::createFromAscii(body.c_str());
+        aResponse.bSuccess = (aResponse.nStatusCode >= 200 && aResponse.nStatusCode < 300);
+        
+        // Parse Content-Type header
+        size_t contentTypePos = headers.find("Content-Type:");
+        if (contentTypePos != std::string::npos)
+        {
+            size_t lineEnd = headers.find('\r', contentTypePos);
+            std::string contentType = headers.substr(contentTypePos + 13, lineEnd - contentTypePos - 13);
+            // Trim whitespace
+            contentType.erase(0, contentType.find_first_not_of(" \t"));
+            contentType.erase(contentType.find_last_not_of(" \t") + 1);
+            aResponse.aHeaders["Content-Type"] = OUString::createFromAscii(contentType.c_str());
+        }
+        
+        SAL_INFO("sw.ai", "makeHttpPostRequest - Parsed response: Status=" << aResponse.nStatusCode << ", Body length=" << aResponse.sBody.getLength());
+        
+    }
+    catch (const std::exception& e)
+    {
+        SAL_WARN("sw.ai", "makeHttpPostRequest - Exception: " << e.what());
+        aResponse.nStatusCode = 500;
+        aResponse.sErrorMessage = "Internal error in HTTP POST: " + OUString::createFromAscii(e.what());
+        aResponse.bSuccess = false;
+    }
+    
+    return aResponse;
 }
 
 } // namespace sw::ai
